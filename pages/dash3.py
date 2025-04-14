@@ -17,7 +17,7 @@ st.title("CFO Financial Analytics Dashboard")
 @st.cache_data
 def load_data():
     try:
-        financial_data = pd.read_csv('data/Financial_Data.csv')
+        financial_data = pd.read_csv('./data/Financial_Data.csv')
         operations_data = pd.read_csv('data/Operations_Data.csv')
         patient_data = pd.read_csv('data/Pat_App_Data.csv')
         staff_data = pd.read_csv('data/Staff_Hours_Data.csv')
