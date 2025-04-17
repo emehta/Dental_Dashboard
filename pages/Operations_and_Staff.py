@@ -8,7 +8,7 @@ import calendar
 
 st.set_page_config(page_title="Operations Dashboard", page_icon="⚙️", layout="wide")
 
-st.title("Dental Practice Operations Dashboard")
+st.title("Operations and Staff Insights")
 
 
 @st.cache_data
@@ -19,11 +19,6 @@ def load_data():
         staff_data = pd.read_csv('data/Staff_Hours_Data.csv')
         patient_data = pd.read_csv('data/Pat_App_Data.csv')
         
-        # Check for date columns format
-        st.write("Operations date sample:", operations_data['Date'].head())
-        st.write("Equipment date sample:", equipment_data['Date'].head())
-        st.write("Staff date sample:", staff_data['Date'].head())
-        st.write("Patient date sample:", patient_data['Date_of_Service'].head())
         
         # Convert date columns - try multiple formats
         date_cols = ['Date']
@@ -52,11 +47,6 @@ def load_data():
                     except Exception as e:
                         st.error(f"Error parsing dates for {col}: {e}")
         
-        # Debug output of date ranges
-        st.write("Operations date range:", operations_data['Date'].min(), "to", operations_data['Date'].max())
-        st.write("Equipment date range:", equipment_data['Date'].min(), "to", equipment_data['Date'].max())
-        st.write("Staff date range:", staff_data['Date'].min(), "to", staff_data['Date'].max())
-        st.write("Patient date range:", patient_data['Date_of_Service'].min(), "to", patient_data['Date_of_Service'].max())
         
         # Add day name and month name
         for df in [operations_data, equipment_data, staff_data]:
@@ -151,8 +141,6 @@ if operations_data is not None and equipment_data is not None and staff_data is 
     # Sample data if date range is too large (optional, for performance)
     if (end_date - start_date).days > 180:  # If more than 6 months of data
 
-        st.info("Showing sampled data for the selected date range for better performance. Adjust date range for more detailed view.")
-
         # Sample data for large date ranges to maintain performance
         date_diff = (end_date - start_date).days
         sample_rate = max(1, date_diff // 180)  # Sample to get about 180 days of data
@@ -166,50 +154,84 @@ if operations_data is not None and equipment_data is not None and staff_data is 
         filtered_equipment = filtered_equipment[filtered_equipment['Date'].dt.date.isin(sampled_dates)]
         filtered_staff = filtered_staff[filtered_staff['Date'].dt.date.isin(sampled_dates)]
         filtered_patients = filtered_patients[filtered_patients['Date_of_Service'].dt.date.isin(sampled_dates)]
+
+    
+    # Add after applying all filters but before calculating metrics
+    st.sidebar.markdown("### Debug Information")
+    with st.sidebar.expander("Data Status"):
+        st.write(f"Operations data shape: {filtered_operations.shape}")
+        if not filtered_operations.empty:
+            st.write("Sample metrics in filtered data:")
+            st.write(f"Chair Utilization: {filtered_operations['Chair_Utilization'].mean():.2f}%")
+            st.write(f"Cancellation Rate: {filtered_operations['Cancellation_Rate'].mean():.2f}%")
+            st.write(f"No-Show Rate: {filtered_operations['No_Show_Rate'].mean():.2f}%")
+            
+            # Check for NaN values or zeros
+            st.write(f"NaN in Chair Utilization: {filtered_operations['Chair_Utilization'].isna().sum()}")
+            st.write(f"NaN in Cancellation Rate: {filtered_operations['Cancellation_Rate'].isna().sum()}")
+            st.write(f"NaN in No-Show Rate: {filtered_operations['No_Show_Rate'].isna().sum()}")
+            
+            # Check min/max values
+            st.write(f"Chair Utilization range: {filtered_operations['Chair_Utilization'].min():.2f}% - {filtered_operations['Chair_Utilization'].max():.2f}%")
+            st.write(f"Cancellation Rate range: {filtered_operations['Cancellation_Rate'].min():.2f}% - {filtered_operations['Cancellation_Rate'].max():.2f}%")
+            st.write(f"No-Show Rate range: {filtered_operations['No_Show_Rate'].min():.2f}% - {filtered_operations['No_Show_Rate'].max():.2f}%")
+        else:
+            st.write("Operations data is empty after filtering!")
     
     # Key metrics
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
-        avg_chair_util = filtered_operations['Chair_Utilization'].mean()
-        target_chair_util = filtered_operations['Target_Chair_Utilization'].mean()
-        chair_util_diff = avg_chair_util - target_chair_util
-        
-        st.metric(
-            "Avg. Chair Utilization", 
-            f"{avg_chair_util:.1f}%", 
-            delta=f"{chair_util_diff:.1f}%" if not pd.isna(chair_util_diff) else None,
-            delta_color="normal" if chair_util_diff >= 0 else "inverse"
-        )
-    
+        if not filtered_operations.empty and 'Chair_Utilization' in filtered_operations.columns:
+            avg_chair_util = filtered_operations['Chair_Utilization'].mean()
+            target_chair_util = filtered_operations['Target_Chair_Utilization'].mean()
+            chair_util_diff = avg_chair_util - target_chair_util
+            
+            st.metric(
+                "Avg. Chair Utilization", 
+                f"{avg_chair_util:.1f}%", 
+                delta=f"{chair_util_diff:.1f}%" if not pd.isna(chair_util_diff) else None,
+                delta_color="normal" if chair_util_diff >= 0 else "inverse"
+            )
+        else:
+            st.metric("Avg. Chair Utilization", "N/A")
+
     with col2:
-        avg_cancellation = filtered_operations['Cancellation_Rate'].mean()
-        st.metric("Cancellation Rate", f"{avg_cancellation:.1f}%")
-    
+        if not filtered_operations.empty and 'Cancellation_Rate' in filtered_operations.columns:
+            avg_cancellation = filtered_operations['Cancellation_Rate'].mean()
+            st.metric("Cancellation Rate", f"{avg_cancellation:.1f}%")
+        else:
+            st.metric("Cancellation Rate", "N/A")
+
     with col3:
-        avg_no_show = filtered_operations['No_Show_Rate'].mean()
-        st.metric("No-Show Rate", f"{avg_no_show:.1f}%")
-    
+        if not filtered_operations.empty and 'No_Show_Rate' in filtered_operations.columns:
+            avg_no_show = filtered_operations['No_Show_Rate'].mean()
+            st.metric("No-Show Rate", f"{avg_no_show:.1f}%")
+        else:
+            st.metric("No-Show Rate", "N/A")
+
     with col4:
-        avg_collection = filtered_operations['Actual_Collection_Rate'].mean()
-        target_collection = filtered_operations['Target_Collection_Rate'].mean()
-        collection_diff = avg_collection - target_collection
-        
-        st.metric(
-            "Collection Rate", 
-            f"{avg_collection:.1f}%", 
-            delta=f"{collection_diff:.1f}%" if not pd.isna(collection_diff) else None,
-            delta_color="normal" if collection_diff >= 0 else "inverse"
-        )
+        if not filtered_operations.empty and 'Actual_Collection_Rate' in filtered_operations.columns:
+            avg_collection = filtered_operations['Actual_Collection_Rate'].mean()
+            target_collection = filtered_operations['Target_Collection_Rate'].mean()
+            collection_diff = avg_collection - target_collection
+            
+            st.metric(
+                "Collection Rate", 
+                f"{avg_collection:.1f}%", 
+                delta=f"{collection_diff:.1f}%" if not pd.isna(collection_diff) else None,
+                delta_color="normal" if collection_diff >= 0 else "inverse"
+            )
+        else:
+            st.metric("Collection Rate", "N/A")
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Capacity & Utilization",
         "Staff Productivity",
         "Patient Flow",
         "Treatment Plans",
-        "Insurance & Revenue Cycle",
-        "Cost Analysis"
+        "Insurance & Revenue Cycle"
     ])
     
     # Tab 1: Capacity & Utilization
@@ -910,7 +932,7 @@ if operations_data is not None and equipment_data is not None and staff_data is 
                 )
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="tab5_insurance_claims")
             
             # Insurance claim metrics
             total_submitted = claim_trends['Insurance_Claims_Submitted'].sum()
@@ -975,7 +997,7 @@ if operations_data is not None and equipment_data is not None and staff_data is 
             
             fig.update_traces(textposition='inside', textinfo='percent+label')
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="tab5_claim_aging_pie")
             
             # Create a bar chart
             fig = px.bar(
@@ -995,7 +1017,7 @@ if operations_data is not None and equipment_data is not None and staff_data is 
                 }
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="tab5_claim_aging_bar")
             
             # Calculate % of claims over 60 days
             total_claims = aging_df['Count'].sum()
@@ -1036,7 +1058,7 @@ if operations_data is not None and equipment_data is not None and staff_data is 
                     )
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="tab5_days_to_payment")
                 
                 # Days to payment metrics
                 avg_days = days_to_payment['Avg_Days_To_Payment'].mean()
@@ -1087,7 +1109,7 @@ if operations_data is not None and equipment_data is not None and staff_data is 
                 )
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="tab5_collection_rate")
             
             # Collection rate metrics
             avg_actual_rate = collection_rate['Actual_Collection_Rate'].mean()
@@ -1102,290 +1124,6 @@ if operations_data is not None and equipment_data is not None and staff_data is 
             )
         else:
             st.info("No collection rate data available for the selected filters.")
-    
-    # Tab 6: Cost Analysis
-    with tab6:
-        st.subheader("Cost & Profitability Analysis")
-        
-        # Revenue metrics
-        st.markdown("### Revenue Metrics")
-        
-        # Group by date
-        revenue_metrics = filtered_operations.groupby('Date').agg({
-            'Revenue_Per_Hour': 'mean',
-            'Revenue_Per_Chair': 'mean',
-            'Revenue_Per_Patient': 'mean'
-        }).reset_index()
-        
-        if not revenue_metrics.empty:
-            # Create a multi-line chart
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatter(
-                x=revenue_metrics['Date'],
-                y=revenue_metrics['Revenue_Per_Hour'],
-                mode='lines+markers',
-                name='Revenue Per Hour',
-                line=dict(color='blue')
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=revenue_metrics['Date'],
-                y=revenue_metrics['Revenue_Per_Chair'],
-                mode='lines+markers',
-                name='Revenue Per Chair',
-                line=dict(color='green')
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=revenue_metrics['Date'],
-                y=revenue_metrics['Revenue_Per_Patient'],
-                mode='lines+markers',
-                name='Revenue Per Patient',
-                line=dict(color='orange')
-            ))
-            
-            fig.update_layout(
-                xaxis_title="Date",
-                yaxis_title="Revenue ($)",
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Revenue metrics averages
-            avg_per_hour = revenue_metrics['Revenue_Per_Hour'].mean()
-            avg_per_chair = revenue_metrics['Revenue_Per_Chair'].mean()
-            avg_per_patient = revenue_metrics['Revenue_Per_Patient'].mean()
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Avg. Revenue Per Hour", f"${avg_per_hour:.2f}")
-            
-            with col2:
-                st.metric("Avg. Revenue Per Chair", f"${avg_per_chair:.2f}")
-            
-            with col3:
-                st.metric("Avg. Revenue Per Patient", f"${avg_per_patient:.2f}")
-        else:
-            st.info("No revenue metrics data available for the selected filters.")
-        
-        # Cost breakdown
-        st.markdown("### Cost Breakdown Analysis")
-        
-        # Group by date
-        cost_breakdown = filtered_operations.groupby('Date').agg({
-            'Labor_Cost_Percentage': 'mean',
-            'Supply_Cost_Percentage': 'mean',
-            'Overhead_Percentage': 'mean'
-        }).reset_index()
-        
-        if not cost_breakdown.empty:
-            # Create a stacked area chart
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatter(
-                x=cost_breakdown['Date'],
-                y=cost_breakdown['Labor_Cost_Percentage'],
-                mode='lines',
-                name='Labor Cost',
-                line=dict(width=0.5),
-                stackgroup='one',
-                fillcolor='rgba(255, 99, 132, 0.5)'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=cost_breakdown['Date'],
-                y=cost_breakdown['Supply_Cost_Percentage'],
-                mode='lines',
-                name='Supply Cost',
-                line=dict(width=0.5),
-                stackgroup='one',
-                fillcolor='rgba(54, 162, 235, 0.5)'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=cost_breakdown['Date'],
-                y=cost_breakdown['Overhead_Percentage'],
-                mode='lines',
-                name='Overhead',
-                line=dict(width=0.5),
-                stackgroup='one',
-                fillcolor='rgba(255, 206, 86, 0.5)'
-            ))
-            
-            fig.update_layout(
-                xaxis_title="Date",
-                yaxis_title="Percentage of Revenue (%)",
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                ),
-                yaxis=dict(range=[0, 100])
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Average cost percentages
-            avg_labor = cost_breakdown['Labor_Cost_Percentage'].mean()
-            avg_supply = cost_breakdown['Supply_Cost_Percentage'].mean()
-            avg_overhead = cost_breakdown['Overhead_Percentage'].mean()
-            avg_profit = 100 - (avg_labor + avg_supply + avg_overhead)
-            
-            # Create a pie chart
-            cost_pie_df = pd.DataFrame({
-                'Category': ['Labor', 'Supplies', 'Overhead', 'Profit Margin'],
-                'Percentage': [avg_labor, avg_supply, avg_overhead, avg_profit]
-            })
-            
-            fig = px.pie(
-                cost_pie_df,
-                values='Percentage',
-                names='Category',
-                title="Average Cost Distribution",
-                color='Category',
-                color_discrete_map={
-                    'Labor': 'rgba(255, 99, 132, 0.8)',
-                    'Supplies': 'rgba(54, 162, 235, 0.8)',
-                    'Overhead': 'rgba(255, 206, 86, 0.8)',
-                    'Profit Margin': 'rgba(75, 192, 192, 0.8)'
-                }
-            )
-            
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Cost metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Labor Cost", f"{avg_labor:.1f}%")
-            
-            with col2:
-                st.metric("Supply Cost", f"{avg_supply:.1f}%")
-            
-            with col3:
-                st.metric("Overhead", f"{avg_overhead:.1f}%")
-            
-            with col4:
-                st.metric("Profit Margin", f"{avg_profit:.1f}%")
-        else:
-            st.info("No cost breakdown data available for the selected filters.")
-        
-        # Location profitability comparison
-        if selected_location == 'All' and 'Location_Name' in filtered_operations.columns:
-            st.markdown("### Location Profitability Comparison")
-            
-            # Group by location
-            location_profitability = filtered_operations.groupby('Location_Name').agg({
-                'Revenue_Per_Hour': 'mean',
-                'Labor_Cost_Percentage': 'mean',
-                'Supply_Cost_Percentage': 'mean',
-                'Overhead_Percentage': 'mean'
-            }).reset_index()
-            
-            # Calculate profit margin
-            location_profitability['Profit_Margin'] = 100 - (
-                location_profitability['Labor_Cost_Percentage'] + 
-                location_profitability['Supply_Cost_Percentage'] + 
-                location_profitability['Overhead_Percentage']
-            )
-            
-            if not location_profitability.empty:
-                # Sort by profit margin
-                location_profitability = location_profitability.sort_values('Profit_Margin', ascending=False)
-                
-                # Create a horizontal bar chart
-                fig = px.bar(
-                    location_profitability,
-                    y='Location_Name',
-                    x='Profit_Margin',
-                    orientation='h',
-                    title="Profit Margin by Location",
-                    labels={
-                        'Location_Name': 'Location',
-                        'Profit_Margin': 'Profit Margin (%)'
-                    },
-                    color='Profit_Margin',
-                    color_continuous_scale=px.colors.sequential.Viridis,
-                    text='Profit_Margin'
-                )
-                
-                fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Revenue comparison
-                fig = px.bar(
-                    location_profitability,
-                    y='Location_Name',
-                    x='Revenue_Per_Hour',
-                    orientation='h',
-                    title="Revenue Per Hour by Location",
-                    labels={
-                        'Location_Name': 'Location',
-                        'Revenue_Per_Hour': 'Revenue Per Hour ($)'
-                    },
-                    color='Revenue_Per_Hour',
-                    color_continuous_scale=px.colors.sequential.Blues,
-                    text='Revenue_Per_Hour'
-                )
-                
-                fig.update_traces(texttemplate='$%{text:.2f}', textposition='outside')
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Cost breakdown comparison
-                cost_breakdown_location = pd.melt(
-                    location_profitability,
-                    id_vars=['Location_Name'],
-                    value_vars=['Labor_Cost_Percentage', 'Supply_Cost_Percentage', 'Overhead_Percentage', 'Profit_Margin'],
-                    var_name='Cost_Category',
-                    value_name='Percentage'
-                )
-                
-                # Rename categories for better readability
-                cost_breakdown_location['Cost_Category'] = cost_breakdown_location['Cost_Category'].replace({
-                    'Labor_Cost_Percentage': 'Labor',
-                    'Supply_Cost_Percentage': 'Supplies',
-                    'Overhead_Percentage': 'Overhead',
-                    'Profit_Margin': 'Profit'
-                })
-                
-                fig = px.bar(
-                    cost_breakdown_location,
-                    x='Location_Name',
-                    y='Percentage',
-                    color='Cost_Category',
-                    title="Cost Breakdown by Location",
-                    labels={
-                        'Location_Name': 'Location',
-                        'Percentage': 'Percentage (%)',
-                        'Cost_Category': 'Category'
-                    },
-                    barmode='stack',
-                    color_discrete_map={
-                        'Labor': 'rgba(255, 99, 132, 0.8)',
-                        'Supplies': 'rgba(54, 162, 235, 0.8)',
-                        'Overhead': 'rgba(255, 206, 86, 0.8)',
-                        'Profit': 'rgba(75, 192, 192, 0.8)'
-                    }
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No location profitability data available for the selected filters.")
     
     # Footer with download option
     st.subheader("Data Download")
