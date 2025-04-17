@@ -1,6 +1,7 @@
 // Dental Practice Financial Dataset Generator for CFO Analytics
 // This script creates a realistic financial dataset spanning 2020 to 2025
 // Focus on base-level financial data for multi-site dental practices
+// Integrates with patient and operations data for consistency
 
 const fs = require('fs');
 
@@ -8,7 +9,6 @@ const fs = require('fs');
 function randomBetween(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
-
 function randomFloatBetween(min, max, precision = 2) {
   const value = Math.random() * (max - min) + min;
   const multiplier = Math.pow(10, precision);
@@ -23,7 +23,7 @@ function formatDate(date) {
 const START_DATE = new Date(2020, 0, 1); // Jan 1, 2020
 const END_DATE = new Date(2025, 3, 1);   // Apr 1, 2025
 
-// Locations data
+// Locations data - matches patient and operations data
 const locations = [
   { 
     id: 'LOC001', 
@@ -33,7 +33,12 @@ const locations = [
     square_footage: 3200,
     monthly_rent: 12800,
     acquisition_cost: 850000,
-    acquisition_date: '2015-01-15'
+    acquisition_date: '2015-01-15',
+    chairs: 5,
+    target_chair_utilization: 0.85,
+    target_collection_rate: 0.92,
+    target_new_patients: 30,
+    target_cancellation_rate: 0.05
   },
   { 
     id: 'LOC002', 
@@ -43,7 +48,12 @@ const locations = [
     square_footage: 2800,
     monthly_rent: 9800,
     acquisition_cost: 720000,
-    acquisition_date: '2017-04-10'
+    acquisition_date: '2017-04-10',
+    chairs: 4,
+    target_chair_utilization: 0.82,
+    target_collection_rate: 0.90,
+    target_new_patients: 25,
+    target_cancellation_rate: 0.06
   },
   { 
     id: 'LOC003', 
@@ -53,7 +63,27 @@ const locations = [
     square_footage: 2400,
     monthly_rent: 7200,
     acquisition_cost: 650000,
-    acquisition_date: '2019-09-05'
+    acquisition_date: '2019-09-05',
+    chairs: 3,
+    target_chair_utilization: 0.80,
+    target_collection_rate: 0.88,
+    target_new_patients: 20,
+    target_cancellation_rate: 0.07
+  },
+  {
+    id: 'LOC004',
+    name: 'North Portland Family Dental',
+    address: '234 Market St, Portland, OR 97217',
+    opened_date: '2018-08-05',
+    square_footage: 2600,
+    monthly_rent: 8500,
+    acquisition_cost: 695000,
+    acquisition_date: '2018-06-15',
+    chairs: 4,
+    target_chair_utilization: 0.83,
+    target_collection_rate: 0.91,
+    target_new_patients: 25,
+    target_cancellation_rate: 0.06
   }
 ];
 
@@ -71,7 +101,7 @@ const serviceCategories = [
   'Adjunctive'
 ];
 
-// Insurance providers for payor mix
+// Insurance providers for payor mix - matches patient data
 const insuranceProviders = [
   { name: 'Delta Dental', reimbursement_rate: 0.85 },
   { name: 'Cigna Dental', reimbursement_rate: 0.80 },
@@ -79,7 +109,7 @@ const insuranceProviders = [
   { name: 'MetLife', reimbursement_rate: 0.82 },
   { name: 'Guardian', reimbursement_rate: 0.78 },
   { name: 'United Healthcare', reimbursement_rate: 0.79 },
-  { name: 'Self-Pay', reimbursement_rate: 1.00 }
+  { name: 'No Insurance', reimbursement_rate: 1.00 }
 ];
 
 // Expense categories
@@ -101,9 +131,32 @@ const expenseCategories = [
   'Miscellaneous'
 ];
 
+// Generate holidays and special dates (to account for lower volume) - from operations data
+const holidays = [
+  // 2020 holidays
+  '2020-01-01', '2020-01-20', '2020-02-17', '2020-05-25', '2020-07-04', '2020-09-07', '2020-11-11', '2020-11-26', '2020-12-25',
+  // 2021 holidays  
+  '2021-01-01', '2021-01-18', '2021-02-15', '2021-05-31', '2021-07-04', '2021-09-06', '2021-11-11', '2021-11-25', '2021-12-25',
+  // 2022 holidays
+  '2022-01-01', '2022-01-17', '2022-02-21', '2022-05-30', '2022-07-04', '2022-09-05', '2022-11-11', '2022-11-24', '2022-12-25',
+  // 2023 holidays
+  '2023-01-01', '2023-01-16', '2023-02-20', '2023-05-29', '2023-07-04', '2023-09-04', '2023-11-11', '2023-11-23', '2023-12-25',
+  // 2024 holidays
+  '2024-01-01', '2024-01-15', '2024-02-19', '2024-05-27', '2024-07-04', '2024-09-02', '2024-11-11', '2024-11-28', '2024-12-25',
+  // 2025 holidays
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-05-26', '2025-07-04'
+];
+
 // Generate seasonal and growth factors
 function getSeasonalFactor(date) {
   const month = date.getMonth();
+  
+  // Check if it's a holiday
+  const formattedDate = formatDate(date);
+  const isHoliday = holidays.includes(formattedDate);
+  if (isHoliday) {
+    return randomFloatBetween(0.4, 0.6); // Significant reduction on holidays
+  }
   
   // Winter - slightly slower
   if (month === 11 || month === 0 || month === 1) {
@@ -122,6 +175,38 @@ function getSeasonalFactor(date) {
   
   // Fall - moderately busy
   return randomFloatBetween(0.95, 1.05);
+}
+
+function getDayOfWeekFactor(date) {
+  const day = date.getDay();
+  
+  // Sunday (0): Closed
+  if (day === 0) {
+    return 0;
+  }
+  
+  // Monday (1): Start of week, often busy
+  if (day === 1) {
+    return randomFloatBetween(1.05, 1.15);
+  }
+  
+  // Tuesday (2), Wednesday (3): Mid-week, very busy
+  if (day === 2 || day === 3) {
+    return randomFloatBetween(1.1, 1.2);
+  }
+  
+  // Thursday (4): Busy day
+  if (day === 4) {
+    return randomFloatBetween(1.0, 1.1);
+  }
+  
+  // Friday (5): Slower end of week
+  if (day === 5) {
+    return randomFloatBetween(0.8, 0.9);
+  }
+  
+  // Saturday (6): Limited hours, often emergency only
+  return randomFloatBetween(0.4, 0.6);
 }
 
 function getGrowthFactor(date, location) {
@@ -150,11 +235,237 @@ function getGrowthFactor(date, location) {
   return baseGrowth;
 }
 
+// READ APPOINTMENT AND OPERATIONS DATA
+// This function reads data from generated files to use for better alignment
+function readExistingData() {
+  return new Promise((resolve, reject) => {
+    // Create containers for the aggregated data
+    const appointmentsByLocationMonth = {};
+    const operationsByLocationMonth = {};
+    
+    // First try to read appointment data
+    try {
+      // Check if the file exists
+      if (fs.existsSync('Pat_App_Data.csv')) {
+        const data = fs.readFileSync('Pat_App_Data.csv', 'utf8');
+        
+        // Parse CSV manually
+        const rows = data.split('\n');
+        const headers = rows[0].split(',').map(header => 
+          header.replace(/^"|"$/g, '') // Remove quotes from headers
+        );
+        
+        // Process each row starting from index 1 (skipping headers)
+        for (let i = 1; i < rows.length; i++) {
+          if (!rows[i].trim()) continue; // Skip empty rows
+          
+          // Split by comma, but respect quoted values
+          const values = [];
+          let current = '';
+          let inQuotes = false;
+          
+          for (let char of rows[i]) {
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              values.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          values.push(current); // Add the last value
+          
+          // Create a row object with header->value mapping
+          const row = {};
+          headers.forEach((header, index) => {
+            if (index < values.length) {
+              row[header] = values[index].replace(/^"|"$/g, ''); // Remove quotes
+            } else {
+              row[header] = '';
+            }
+          });
+          
+          // Extract key data
+          const locationId = row.Location_ID;
+          const year = parseInt(row.Year);
+          const month = parseInt(row.Month);
+          const chargedAmount = parseInt(row.Charged_Amount) || 0;
+          const insuranceCovered = parseInt(row.Insurance_Covered_Amount) || 0;
+          const amountPaid = parseInt(row.Amount_Paid) || 0;
+          const appointmentStatus = row.Appointment_Status;
+          
+          // Create key for location and month
+          const key = `${locationId}-${year}-${month}`;
+          
+          // Initialize if first time seeing this location/month
+          if (!appointmentsByLocationMonth[key]) {
+            appointmentsByLocationMonth[key] = {
+              totalAppointments: 0,
+              completedAppointments: 0,
+              canceledAppointments: 0,
+              noShowAppointments: 0,
+              totalChargedAmount: 0,
+              totalInsuranceCovered: 0,
+              totalAmountPaid: 0,
+              serviceCategoryCounts: {},
+              payorCounts: {}
+            };
+          }
+          
+          // Update counters
+          appointmentsByLocationMonth[key].totalAppointments++;
+          
+          if (appointmentStatus === 'Completed') {
+            appointmentsByLocationMonth[key].completedAppointments++;
+            appointmentsByLocationMonth[key].totalChargedAmount += chargedAmount;
+            appointmentsByLocationMonth[key].totalInsuranceCovered += insuranceCovered;
+            appointmentsByLocationMonth[key].totalAmountPaid += amountPaid;
+            
+            // Track service categories
+            const category = row.Procedure_Category;
+            if (category) {
+              appointmentsByLocationMonth[key].serviceCategoryCounts[category] = 
+                (appointmentsByLocationMonth[key].serviceCategoryCounts[category] || 0) + 1;
+            }
+            
+            // Track insurance providers
+            const insuranceProvider = row.Insurance_Provider;
+            if (insuranceProvider) {
+              appointmentsByLocationMonth[key].payorCounts[insuranceProvider] = 
+                (appointmentsByLocationMonth[key].payorCounts[insuranceProvider] || 0) + 1;
+            }
+          } else if (appointmentStatus === 'Canceled') {
+            appointmentsByLocationMonth[key].canceledAppointments++;
+          } else if (appointmentStatus === 'No-Show') {
+            appointmentsByLocationMonth[key].noShowAppointments++;
+          }
+        }
+        
+        console.log('Successfully processed appointment data');
+      } else {
+        console.log('Appointment data file not found, will generate synthetic data');
+      }
+    } catch (err) {
+      console.error('Error reading appointment data:', err);
+      // Continue with synthetic data if appointment data not available
+    }
+    
+    // Next try to read operations data
+    try {
+      // Check if the file exists
+      if (fs.existsSync('Operations_Data.csv')) {
+        const data = fs.readFileSync('Operations_Data.csv', 'utf8');
+        
+        // Parse CSV manually
+        const rows = data.split('\n');
+        const headers = rows[0].split(',').map(header => 
+          header.replace(/^"|"$/g, '') // Remove quotes from headers
+        );
+        
+        // Process each row starting from index 1 (skipping headers)
+        for (let i = 1; i < rows.length; i++) {
+          if (!rows[i].trim()) continue; // Skip empty rows
+          
+          // Split by comma, but respect quoted values
+          const values = [];
+          let current = '';
+          let inQuotes = false;
+          
+          for (let char of rows[i]) {
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              values.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          values.push(current); // Add the last value
+          
+          // Create a row object with header->value mapping
+          const row = {};
+          headers.forEach((header, index) => {
+            if (index < values.length) {
+              row[header] = values[index].replace(/^"|"$/g, ''); // Remove quotes
+            } else {
+              row[header] = '';
+            }
+          });
+          
+          // Extract key data
+          const locationId = row.Location_ID;
+          const year = parseInt(row.Year);
+          const month = parseInt(row.Month);
+          const date = row.Date;
+          const chairUtilization = parseFloat(row.Chair_Utilization) || 0;
+          const actualAppointments = parseInt(row.Actual_Appointments) || 0;
+          const newPatients = parseInt(row.New_Patient_Count) || 0;
+          const totalLaborCost = parseInt(row.Total_Labor_Cost) || 0;
+          const totalLaborHours = parseFloat(row.Total_Labor_Hours) || 0;
+          const collectionRate = parseFloat(row.Actual_Collection_Rate) || 0;
+          
+          // Create key for location and month
+          const key = `${locationId}-${year}-${month}`;
+          
+          // Initialize if first time seeing this location/month
+          if (!operationsByLocationMonth[key]) {
+            operationsByLocationMonth[key] = {
+              daysInMonth: 0,
+              totalAppointments: 0,
+              totalNewPatients: 0,
+              totalLaborCost: 0,
+              totalLaborHours: 0,
+              avgChairUtilization: 0,
+              avgCollectionRate: 0
+            };
+          }
+          
+          // Update counters
+          operationsByLocationMonth[key].daysInMonth++;
+          operationsByLocationMonth[key].totalAppointments += actualAppointments;
+          operationsByLocationMonth[key].totalNewPatients += newPatients;
+          operationsByLocationMonth[key].totalLaborCost += totalLaborCost;
+          operationsByLocationMonth[key].totalLaborHours += totalLaborHours;
+          operationsByLocationMonth[key].avgChairUtilization += chairUtilization;
+          operationsByLocationMonth[key].avgCollectionRate += collectionRate;
+        }
+        
+        // Calculate averages for each location/month
+        for (const key in operationsByLocationMonth) {
+          const data = operationsByLocationMonth[key];
+          if (data.daysInMonth > 0) {
+            data.avgChairUtilization /= data.daysInMonth;
+            data.avgCollectionRate /= data.daysInMonth;
+          }
+        }
+        
+        console.log('Successfully processed operations data');
+      } else {
+        console.log('Operations data file not found, will generate synthetic data');
+      }
+    } catch (err) {
+      console.error('Error reading operations data:', err);
+      // Continue with synthetic data if operations data not available
+    }
+    
+    resolve({ appointmentsByLocationMonth, operationsByLocationMonth });
+  });
+}
+
 // Generate monthly financial data for a specific location and month
-function generateMonthlyFinancialData(date, location) {
+async function generateMonthlyFinancialData(date, location, existingData) {
   const formattedDate = formatDate(date);
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
+  
+  // Create key for lookup in existing data
+  const lookupKey = `${location.id}-${year}-${month}`;
+  
+  // Extract any existing appointment data
+  const appointmentData = existingData.appointmentsByLocationMonth[lookupKey];
+  const operationsData = existingData.operationsByLocationMonth[lookupKey];
   
   // Calculate seasonal and growth factors
   const seasonalFactor = getSeasonalFactor(date);
@@ -168,44 +479,67 @@ function generateMonthlyFinancialData(date, location) {
   
   // ------ Generate Revenue Data -------
   
-  // Base revenue - varies by location size with some randomness
-  let baseRevenue = 0;
-  if (location.id === 'LOC001') { // Largest location
-    baseRevenue = randomBetween(180000, 220000);
-  } else if (location.id === 'LOC002') {
-    baseRevenue = randomBetween(140000, 170000);
-  } else {
-    baseRevenue = randomBetween(100000, 130000);
-  }
+  let totalRevenue = 0;
   
-  // Apply seasonal and growth factors
-  const totalRevenue = Math.round(baseRevenue * seasonalFactor * growthFactor);
+  if (appointmentData && appointmentData.totalChargedAmount > 0) {
+    // Use actual data from appointments if available
+    totalRevenue = appointmentData.totalChargedAmount;
+  } else {
+    // Base revenue - varies by location size with some randomness
+    let baseRevenue = 0;
+    if (location.id === 'LOC001') { // Largest location
+      baseRevenue = randomBetween(180000, 220000);
+    } else if (location.id === 'LOC002') {
+      baseRevenue = randomBetween(140000, 170000);
+    } else if (location.id === 'LOC004') {
+      baseRevenue = randomBetween(120000, 150000);
+    } else {
+      baseRevenue = randomBetween(100000, 130000);
+    }
+    
+    // Apply seasonal and growth factors
+    totalRevenue = Math.round(baseRevenue * seasonalFactor * growthFactor);
+  }
   
   // Revenue breakdown by service category
   const serviceRevenue = {};
-  const categoryWeights = {
-    'Diagnostic': 0.10,
-    'Preventive': 0.20,
-    'Restorative': 0.25,
-    'Endodontic': 0.08,
-    'Periodontic': 0.07,
-    'Prosthodontic': 0.10,
-    'Oral Surgery': 0.05,
-    'Orthodontic': 0.08,
-    'Implant': 0.05,
-    'Adjunctive': 0.02
-  };
-  
-  // Add some randomness to the category weights
-  let totalWeight = 0;
-  for (const category of serviceCategories) {
-    serviceRevenue[category] = categoryWeights[category] * randomFloatBetween(0.85, 1.15);
-    totalWeight += serviceRevenue[category];
-  }
-  
-  // Normalize and calculate actual amounts
-  for (const category of serviceCategories) {
-    serviceRevenue[category] = Math.round((serviceRevenue[category] / totalWeight) * totalRevenue);
+  if (appointmentData && Object.keys(appointmentData.serviceCategoryCounts).length > 0) {
+    // Calculate service category revenue based on actual appointment counts
+    let totalServiceCount = 0;
+    for (const category in appointmentData.serviceCategoryCounts) {
+      totalServiceCount += appointmentData.serviceCategoryCounts[category];
+    }
+    
+    for (const category of serviceCategories) {
+      const categoryCount = appointmentData.serviceCategoryCounts[category] || 0;
+      serviceRevenue[category] = Math.round((categoryCount / totalServiceCount) * totalRevenue);
+    }
+  } else {
+    // Use standard category weights with randomness
+    const categoryWeights = {
+      'Diagnostic': 0.10,
+      'Preventive': 0.20,
+      'Restorative': 0.25,
+      'Endodontic': 0.08,
+      'Periodontic': 0.07,
+      'Prosthodontic': 0.10,
+      'Oral Surgery': 0.05,
+      'Orthodontic': 0.08,
+      'Implant': 0.05,
+      'Adjunctive': 0.02
+    };
+    
+    // Add some randomness to the category weights
+    let totalWeight = 0;
+    for (const category of serviceCategories) {
+      serviceRevenue[category] = categoryWeights[category] * randomFloatBetween(0.85, 1.15);
+      totalWeight += serviceRevenue[category];
+    }
+    
+    // Normalize and calculate actual amounts
+    for (const category of serviceCategories) {
+      serviceRevenue[category] = Math.round((serviceRevenue[category] / totalWeight) * totalRevenue);
+    }
   }
   
   // ------ Generate Expense Data -------
@@ -214,8 +548,14 @@ function generateMonthlyFinancialData(date, location) {
   const expenseData = {};
   
   // Labor - typically 24-32% of revenue
-  expenseData['Labor - Clinical'] = Math.round(totalRevenue * randomFloatBetween(0.18, 0.22));
-  expenseData['Labor - Administrative'] = Math.round(totalRevenue * randomFloatBetween(0.06, 0.10));
+  if (operationsData && operationsData.totalLaborCost > 0) {
+    // Use actual labor costs from operations data
+    expenseData['Labor - Clinical'] = Math.round(operationsData.totalLaborCost * 0.75); // 75% of labor is clinical
+    expenseData['Labor - Administrative'] = Math.round(operationsData.totalLaborCost * 0.25); // 25% is administrative
+  } else {
+    expenseData['Labor - Clinical'] = Math.round(totalRevenue * randomFloatBetween(0.18, 0.22));
+    expenseData['Labor - Administrative'] = Math.round(totalRevenue * randomFloatBetween(0.06, 0.10));
+  }
   
   // Supplies - typically 6-10% of revenue
   expenseData['Supplies - Clinical'] = Math.round(totalRevenue * randomFloatBetween(0.05, 0.08));
@@ -272,6 +612,23 @@ function generateMonthlyFinancialData(date, location) {
   };
   
   // Insurance claims data
+  let collectionRate = 0;
+  
+  if (operationsData && operationsData.avgCollectionRate > 0) {
+    // Use actual collection rate from operations data
+    collectionRate = operationsData.avgCollectionRate;
+  } else if (appointmentData && appointmentData.totalChargedAmount > 0) {
+    // Calculate from appointment data
+    collectionRate = appointmentData.totalAmountPaid / appointmentData.totalChargedAmount;
+  } else {
+    // Use target with some randomness
+    collectionRate = randomFloatBetween(
+      Math.max(0.6, location.target_collection_rate - 0.1), 
+      Math.min(0.98, location.target_collection_rate + 0.05)
+    );
+  }
+  
+  // Claims data
   const totalClaims = Math.round(totalRevenue * 0.8 / 150); // Estimate number of claims based on avg claim of $150
   const claimsSubmitted = totalClaims;
   const claimsOutstanding = Math.round(totalClaims * randomFloatBetween(0.3, 0.4));
@@ -280,50 +637,104 @@ function generateMonthlyFinancialData(date, location) {
   
   // Payment collection data
   const collectionsExpected = totalRevenue * 0.9; // Expected to collect 90% of revenue
-  const collectionsActual = collectionsExpected * randomFloatBetween(0.88, 0.99);
-  const collectionRate = collectionsActual / totalRevenue;
+  const collectionsActual = Math.round(totalRevenue * collectionRate);
   
   // Procedure data
-  const numberOfProcedures = Math.round(totalRevenue / randomBetween(200, 300)); // Average procedure value
-  const completedProcedures = Math.round(numberOfProcedures * randomFloatBetween(0.92, 0.98));
-  const cancelledProcedures = Math.round(numberOfProcedures * randomFloatBetween(0.02, 0.08));
+  let numberOfProcedures = 0;
+  let completedProcedures = 0;
+  let cancelledProcedures = 0;
+  
+  if (appointmentData) {
+    // Use actual appointment data
+    completedProcedures = appointmentData.completedAppointments;
+    cancelledProcedures = appointmentData.canceledAppointments + appointmentData.noShowAppointments;
+    numberOfProcedures = completedProcedures + cancelledProcedures;
+  } else if (operationsData) {
+    // Use operations data
+    completedProcedures = operationsData.totalAppointments;
+    cancelledProcedures = Math.round(completedProcedures * randomFloatBetween(0.02, 0.08));
+    numberOfProcedures = completedProcedures + cancelledProcedures;
+  } else {
+    // Estimate based on revenue
+    numberOfProcedures = Math.round(totalRevenue / randomBetween(200, 300)); // Average procedure value
+    completedProcedures = Math.round(numberOfProcedures * randomFloatBetween(0.92, 0.98));
+    cancelledProcedures = numberOfProcedures - completedProcedures;
+  }
   
   // Patient data
-  const patientVisits = Math.round(numberOfProcedures * 0.7); // Some patients get multiple procedures
-  const newPatients = Math.round(patientVisits * randomFloatBetween(0.15, 0.25));
-  const returningPatients = patientVisits - newPatients;
+  let patientVisits = 0;
+  let newPatients = 0;
+  let returningPatients = 0;
+  
+  if (operationsData) {
+    // Use actual operations data
+    patientVisits = operationsData.totalAppointments;
+    newPatients = operationsData.totalNewPatients;
+    returningPatients = patientVisits - newPatients;
+  } else {
+    // Estimate based on procedures
+    patientVisits = Math.round(numberOfProcedures * 0.7); // Some patients get multiple procedures
+    newPatients = Math.round(patientVisits * randomFloatBetween(0.15, 0.25));
+    returningPatients = patientVisits - newPatients;
+  }
+  
   const patientRetentionRate = randomFloatBetween(0.75, 0.9);
   
   // Capacity and utilization
-  const chairCapacity = location.id === 'LOC001' ? 5 : (location.id === 'LOC002' ? 4 : 3);
+  const chairCapacity = location.chairs;
   const operatingDays = 22; // Average business days in month
   const operatingHours = 8; // Hours per day
   const totalChairHours = chairCapacity * operatingDays * operatingHours;
-  const usedChairHours = totalChairHours * randomFloatBetween(0.7, 0.9);
+  let chairUtilization = 0;
+  
+  if (operationsData && operationsData.avgChairUtilization > 0) {
+    // Use actual chair utilization from operations data
+    chairUtilization = operationsData.avgChairUtilization;
+  } else {
+    // Estimate based on target with some randomness
+    chairUtilization = randomFloatBetween(0.7, 0.9);
+  }
+  
+  const usedChairHours = totalChairHours * chairUtilization;
   
   // Payor mix - distribution of revenue by insurance provider
   const payorMix = {};
-  const payorWeights = {
-    'Delta Dental': 0.30,
-    'Cigna Dental': 0.15,
-    'Aetna': 0.12,
-    'MetLife': 0.10,
-    'Guardian': 0.08,
-    'United Healthcare': 0.05,
-    'Self-Pay': 0.20
-  };
   
-  // Add some randomness to the payor weights
-  let totalPayorWeight = 0;
-  for (const provider of insuranceProviders) {
-    const weight = payorWeights[provider.name] || 0.02;
-    payorMix[provider.name] = weight * randomFloatBetween(0.85, 1.15);
-    totalPayorWeight += payorMix[provider.name];
-  }
-  
-  // Normalize and calculate actual amounts
-  for (const provider of insuranceProviders) {
-    payorMix[provider.name] = Math.round((payorMix[provider.name] / totalPayorWeight) * totalRevenue);
+  if (appointmentData && Object.keys(appointmentData.payorCounts).length > 0) {
+    // Calculate payor mix based on actual appointment counts
+    let totalPayorCount = 0;
+    for (const provider in appointmentData.payorCounts) {
+      totalPayorCount += appointmentData.payorCounts[provider];
+    }
+    
+    for (const provider of insuranceProviders) {
+      const providerCount = appointmentData.payorCounts[provider.name] || 0;
+      payorMix[provider.name] = Math.round((providerCount / totalPayorCount) * totalRevenue);
+    }
+  } else {
+    // Use standard payor weights with randomness
+    const payorWeights = {
+      'Delta Dental': 0.30,
+      'Cigna Dental': 0.15,
+      'Aetna': 0.12,
+      'MetLife': 0.10,
+      'Guardian': 0.08,
+      'United Healthcare': 0.05,
+      'No Insurance': 0.20
+    };
+    
+    // Add some randomness to the payor weights
+    let totalPayorWeight = 0;
+    for (const provider of insuranceProviders) {
+      const weight = payorWeights[provider.name] || 0.02;
+      payorMix[provider.name] = weight * randomFloatBetween(0.85, 1.15);
+      totalPayorWeight += payorMix[provider.name];
+    }
+    
+    // Normalize and calculate actual amounts
+    for (const provider of insuranceProviders) {
+      payorMix[provider.name] = Math.round((payorMix[provider.name] / totalPayorWeight) * totalRevenue);
+    }
   }
   
   // Treatment acceptance and completion rates
@@ -403,7 +814,7 @@ function generateMonthlyFinancialData(date, location) {
     
     // Collections
     Collections_Expected: Math.round(collectionsExpected),
-    Collections_Actual: Math.round(collectionsActual),
+    Collections_Actual: collectionsActual,
     Collection_Rate: collectionRate.toFixed(4),
     
     // Procedure metrics
@@ -422,7 +833,7 @@ function generateMonthlyFinancialData(date, location) {
     Chair_Capacity: chairCapacity,
     Total_Chair_Hours: totalChairHours,
     Used_Chair_Hours: Math.round(usedChairHours),
-    Chair_Utilization: (usedChairHours / totalChairHours).toFixed(4),
+    Chair_Utilization: chairUtilization.toFixed(4),
     
     // Payor mix
     Payor_Delta_Dental: payorMix['Delta Dental'],
@@ -431,7 +842,7 @@ function generateMonthlyFinancialData(date, location) {
     Payor_MetLife: payorMix['MetLife'],
     Payor_Guardian: payorMix['Guardian'],
     Payor_United_Healthcare: payorMix['United Healthcare'],
-    Payor_Self_Pay: payorMix['Self-Pay'],
+    Payor_Self_Pay: payorMix['No Insurance'],
     
     // Treatment plan metrics
     Treatment_Plans_Presented: treatmentPlansPresented,
@@ -454,7 +865,10 @@ function generateMonthlyFinancialData(date, location) {
 }
 
 // Function to generate the entire dataset
-function generateFinancialDataset() {
+async function generateFinancialDataset() {
+  // Get existing data from appointment and operations files
+  const existingData = await readExistingData();
+  
   const financialData = [];
   
   // Generate monthly records for each location
@@ -470,7 +884,7 @@ function generateFinancialDataset() {
     let currentDate = new Date(startDate);
     
     while (currentDate <= END_DATE) {
-      const monthData = generateMonthlyFinancialData(currentDate, location);
+      const monthData = await generateMonthlyFinancialData(currentDate, location, existingData);
       financialData.push(monthData);
       
       // Move to next month
@@ -520,9 +934,6 @@ function generateFinancialDataset() {
   return financialData;
 }
 
-// Generate the dataset
-const financialDataset = generateFinancialDataset();
-
 // Convert array to CSV
 function convertToCSV(data) {
   // Skip empty datasets
@@ -550,33 +961,48 @@ function convertToCSV(data) {
   return csvRows.join('\n');
 }
 
-// Save dataset to CSV file
-const financialCSV = convertToCSV(financialDataset);
-fs.writeFileSync('Dental_Financial_Data.csv', financialCSV);
+// Main execution function
+async function main() {
+  try {
+    // Generate the dataset
+    console.log("Reading existing data and generating financial data...");
+    const financialDataset = await generateFinancialDataset();
+    
+    // Save dataset to CSV file
+    const financialCSV = convertToCSV(financialDataset);
+    fs.writeFileSync('Financial_Data.csv', financialCSV);
+    
+    // Log results
+    console.log(`Generated ${financialDataset.length} financial records`);
+    console.log('Data saved to "Financial_Data.csv"');
+    
+    // Calculate some metrics for verification
+    const totalRevenue = financialDataset.reduce((sum, record) => sum + record.Total_Revenue, 0);
+    const totalEBITDA = financialDataset.reduce((sum, record) => sum + record.EBITDA, 0);
+    const avgMargin = totalEBITDA / totalRevenue;
+    
+    console.log(`Total Revenue: $${totalRevenue.toLocaleString()}`);
+    console.log(`Total EBITDA: $${totalEBITDA.toLocaleString()}`);
+    console.log(`Average EBITDA Margin: ${(avgMargin * 100).toFixed(2)}%`);
+    
+    // Count records by year
+    const byYear = {};
+    financialDataset.forEach(record => {
+      byYear[record.Year] = (byYear[record.Year] || 0) + 1;
+    });
+    console.log("Records by year:", byYear);
+    
+    // Count records by location
+    const byLocation = {};
+    financialDataset.forEach(record => {
+      byLocation[record.Location_Name] = (byLocation[record.Location_Name] || 0) + 1;
+    });
+    console.log("Records by location:", byLocation);
+  
+  } catch (error) {
+    console.error("Error generating financial data:", error);
+  }
+}
 
-// Log results
-console.log(`Generated ${financialDataset.length} financial records`);
-console.log('Data saved to "Dental_Financial_Data.csv"');
-
-// Calculate some metrics for verification
-const totalRevenue = financialDataset.reduce((sum, record) => sum + record.Total_Revenue, 0);
-const totalEBITDA = financialDataset.reduce((sum, record) => sum + record.EBITDA, 0);
-const avgMargin = totalEBITDA / totalRevenue;
-
-console.log(`Total Revenue: $${totalRevenue.toLocaleString()}`);
-console.log(`Total EBITDA: $${totalEBITDA.toLocaleString()}`);
-console.log(`Average EBITDA Margin: ${(avgMargin * 100).toFixed(2)}%`);
-
-// Count records by year
-const byYear = {};
-financialDataset.forEach(record => {
-  byYear[record.Year] = (byYear[record.Year] || 0) + 1;
-});
-console.log("Records by year:", byYear);
-
-// Count records by location
-const byLocation = {};
-financialDataset.forEach(record => {
-  byLocation[record.Location_Name] = (byLocation[record.Location_Name] || 0) + 1;
-});
-console.log("Records by location:", byLocation);
+// Run the main function
+main();
