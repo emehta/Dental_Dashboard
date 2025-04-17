@@ -4,6 +4,14 @@
 
 const fs = require('fs');
 
+// Helper function to generate random appointment times during business hours
+function randomAppointmentTime() {
+  // Dental offices typically open 8am-5pm
+  const hour = randomBetween(8, 16); // 8am to 4pm start times
+  const minute = [0, 15, 30, 45][randomBetween(0, 3)]; // Appointments usually start on quarter hours
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 // Helper function to generate random numbers within a range
 function randomBetween(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
@@ -19,29 +27,103 @@ function formatDate(date) {
   return date.toISOString().split('T')[0];
 }
 
+// Track last cleaning date for each patient to model recall patterns
+const patientLastCleaningDate = {};
+
+// Function to determine if patient is due for recall based on procedure
+function isDueForRecall(patientId, procedureCode, currentDate) {
+  // Only implement recall patterns for cleaning procedures
+  if (procedureCode !== 'D1110' && procedureCode !== 'D1120') {
+    return true; // Not a cleaning, so no recall pattern needed
+  }
+  
+  const lastCleaning = patientLastCleaningDate[patientId];
+  if (!lastCleaning) {
+    return true; // First cleaning, so they're due
+  }
+  
+  // Calculate time since last cleaning
+  const lastDate = new Date(lastCleaning);
+  const currentDateTime = new Date(currentDate);
+  const monthsSince = (currentDateTime.getFullYear() - lastDate.getFullYear()) * 12 + 
+                     (currentDateTime.getMonth() - lastDate.getMonth());
+  
+  // Patients typically get cleanings every 6 months, with some variation
+  return monthsSince >= 5; // Due for recall if at least 5 months since last cleaning
+}
+
+// Track active treatment plans
+const activeTreatmentPlans = {};
+
 // Constants for the dataset
 const START_DATE = new Date(2020, 0, 1); // Jan 1, 2020
 const END_DATE = new Date(2025, 3, 1);   // Apr 1, 2025
-const NUM_RECORDS = 250;                 // Number of appointment records
-const NUM_PATIENTS = 75;                 // Number of unique patients
+const NUM_RECORDS = 10000;                 // Number of appointment records
+const NUM_PATIENTS = 600;                 // Number of unique patients
 
 // Create location data
 const locations = [
   { id: 'LOC001', name: 'Downtown Dental', address: '123 Main St, Portland, OR 97201', google_rating: 4.8, opened_date: '2015-03-15', services_offered: 'General|Cosmetic|Orthodontic|Pediatric|Implants' },
   { id: 'LOC002', name: 'Westside Smile Center', address: '456 Park Ave, Portland, OR 97229', google_rating: 4.6, opened_date: '2017-06-22', services_offered: 'General|Cosmetic|Periodontic|Implants|Emergency' },
-  { id: 'LOC003', name: 'East Valley Dental Care', address: '789 River Rd, Gresham, OR 97030', google_rating: 4.5, opened_date: '2019-11-10', services_offered: 'General|Cosmetic|Pediatric|Emergency' }
+  { id: 'LOC003', name: 'East Valley Dental Care', address: '789 River Rd, Gresham, OR 97030', google_rating: 4.5, opened_date: '2019-11-10', services_offered: 'General|Cosmetic|Pediatric|Emergency' },
+  { id: 'LOC004', name: 'North Portland Family Dental', address: '234 Market St, Portland, OR 97217', google_rating: 4.7, opened_date: '2018-08-05', services_offered: 'General|Cosmetic|Pediatric|Emergency|Endodontic' }
 ];
 
 // Create provider data
 const providers = [
-  { id: 'DR001', name: 'Dr. Sarah Johnson', role: 'Dentist', primary_location: 'LOC001', specialty: 'General' },
-  { id: 'DR002', name: 'Dr. Michael Chen', role: 'Dentist', primary_location: 'LOC001', specialty: 'Orthodontics' },
-  { id: 'DR003', name: 'Dr. Robert Garcia', role: 'Dentist', primary_location: 'LOC002', specialty: 'Periodontics' },
-  { id: 'DR004', name: 'Dr. Emily Wilson', role: 'Dentist', primary_location: 'LOC002', specialty: 'General' },
-  { id: 'DR005', name: 'Dr. David Kim', role: 'Dentist', primary_location: 'LOC003', specialty: 'General' },
-  { id: 'HYG001', name: 'Lisa Martinez', role: 'Hygienist', primary_location: 'LOC001', specialty: 'Hygiene' },
-  { id: 'HYG002', name: 'John Anderson', role: 'Hygienist', primary_location: 'LOC002', specialty: 'Hygiene' },
-  { id: 'HYG003', name: 'Sophia Lee', role: 'Hygienist', primary_location: 'LOC003', specialty: 'Hygiene' }
+  { id: 'DR001', name: 'Dr. Sarah Johnson', role: 'Dentist', primary_location: 'LOC001', specialty: 'General', hourly_rate: 150, full_time: true },
+  { id: 'DR002', name: 'Dr. Michael Chen', role: 'Dentist', primary_location: 'LOC001', specialty: 'Orthodontics', hourly_rate: 160, full_time: true },
+  { id: 'DR003', name: 'Dr. Robert Garcia', role: 'Dentist', primary_location: 'LOC002', specialty: 'Periodontics', hourly_rate: 155, full_time: true },
+  { id: 'DR004', name: 'Dr. Emily Wilson', role: 'Dentist', primary_location: 'LOC002', specialty: 'General', hourly_rate: 145, full_time: false },
+  { id: 'DR005', name: 'Dr. David Kim', role: 'Dentist', primary_location: 'LOC003', specialty: 'General', hourly_rate: 140, full_time: true },
+  { id: 'DR006', name: 'Dr. Lisa Patel', role: 'Dentist', primary_location: 'LOC003', specialty: 'Endodontics', hourly_rate: 165, full_time: false },
+  { id: 'DR007', name: 'Dr. James Taylor', role: 'Dentist', primary_location: 'LOC004', specialty: 'Oral Surgery', hourly_rate: 170, full_time: false },
+  // Hygienists
+  { id: 'HYG001', name: 'Lisa Martinez', role: 'Hygienist', primary_location: 'LOC001', specialty: 'Hygiene', hourly_rate: 60, full_time: true },
+  { id: 'HYG002', name: 'John Anderson', role: 'Hygienist', primary_location: 'LOC002', specialty: 'Hygiene', hourly_rate: 58, full_time: true },
+  { id: 'HYG003', name: 'Sophia Lee', role: 'Hygienist', primary_location: 'LOC003', specialty: 'Hygiene', hourly_rate: 55, full_time: true },
+  { id: 'HYG004', name: 'Michael Brooks', role: 'Hygienist', primary_location: 'LOC001', specialty: 'Hygiene', hourly_rate: 62, full_time: true },
+  { id: 'HYG005', name: 'Jennifer Lopez', role: 'Hygienist', primary_location: 'LOC001', specialty: 'Hygiene', hourly_rate: 59, full_time: true },
+  { id: 'HYG006', name: 'Thomas Wright', role: 'Hygienist', primary_location: 'LOC002', specialty: 'Hygiene', hourly_rate: 57, full_time: true },
+  { id: 'HYG007', name: 'Emily Davis', role: 'Hygienist', primary_location: 'LOC002', specialty: 'Hygiene', hourly_rate: 56, full_time: false },
+  { id: 'HYG008', name: 'Ryan Cooper', role: 'Hygienist', primary_location: 'LOC003', specialty: 'Hygiene', hourly_rate: 54, full_time: true },
+  { id: 'HYG009', name: 'Olivia Martinez', role: 'Hygienist', primary_location: 'LOC004', specialty: 'Hygiene', hourly_rate: 61, full_time: false },
+
+  // Dental Assistants
+  { id: 'ASST001', name: 'Maria Rodriguez', role: 'Assistant', primary_location: 'LOC001', specialty: 'General', hourly_rate: 28, full_time: true },
+  { id: 'ASST002', name: 'David Smith', role: 'Assistant', primary_location: 'LOC001', specialty: 'General', hourly_rate: 27, full_time: true },
+  { id: 'ASST003', name: 'Sarah Johnson', role: 'Assistant', primary_location: 'LOC001', specialty: 'Orthodontics', hourly_rate: 29, full_time: true },
+  { id: 'ASST004', name: 'Michael Brown', role: 'Assistant', primary_location: 'LOC001', specialty: 'General', hourly_rate: 26, full_time: true },
+  { id: 'ASST005', name: 'Jessica Lee', role: 'Assistant', primary_location: 'LOC001', specialty: 'Oral Surgery', hourly_rate: 30, full_time: true },
+  { id: 'ASST006', name: 'Robert Wilson', role: 'Assistant', primary_location: 'LOC002', specialty: 'General', hourly_rate: 27, full_time: true },
+  { id: 'ASST007', name: 'Karen Miller', role: 'Assistant', primary_location: 'LOC002', specialty: 'General', hourly_rate: 26, full_time: true },
+  { id: 'ASST008', name: 'Daniel Taylor', role: 'Assistant', primary_location: 'LOC002', specialty: 'General', hourly_rate: 25, full_time: true },
+  { id: 'ASST009', name: 'Michelle Davis', role: 'Assistant', primary_location: 'LOC002', specialty: 'Periodontics', hourly_rate: 28, full_time: true },
+  { id: 'ASST010', name: 'Andrew Garcia', role: 'Assistant', primary_location: 'LOC003', specialty: 'General', hourly_rate: 26, full_time: true },
+  { id: 'ASST011', name: 'Patricia Martinez', role: 'Assistant', primary_location: 'LOC003', specialty: 'General', hourly_rate: 25, full_time: true },
+  { id: 'ASST012', name: 'Kevin Johnson', role: 'Assistant', primary_location: 'LOC003', specialty: 'General', hourly_rate: 24, full_time: true },
+  { id: 'ASST013', name: 'Rachel Thompson', role: 'Assistant', primary_location: 'LOC004', specialty: 'Endodontics', hourly_rate: 27, full_time: true },
+  
+  // Administrative Staff
+  { id: 'ADM001', name: 'Jennifer Williams', role: 'Admin', primary_location: 'LOC001', specialty: 'Reception', hourly_rate: 24, full_time: true },
+  { id: 'ADM002', name: 'Christopher Davis', role: 'Admin', primary_location: 'LOC001', specialty: 'Billing', hourly_rate: 26, full_time: true },
+  { id: 'ADM003', name: 'Amanda Johnson', role: 'Admin', primary_location: 'LOC001', specialty: 'Office Manager', hourly_rate: 32, full_time: true },
+  { id: 'ADM004', name: 'Matthew Miller', role: 'Admin', primary_location: 'LOC002', specialty: 'Reception', hourly_rate: 23, full_time: true },
+  { id: 'ADM005', name: 'Emma Smith', role: 'Admin', primary_location: 'LOC002', specialty: 'Office Manager', hourly_rate: 30, full_time: true },
+  { id: 'ADM006', name: 'Brandon Wilson', role: 'Admin', primary_location: 'LOC003', specialty: 'Reception', hourly_rate: 22, full_time: true },
+  { id: 'ADM007', name: 'Sophia Garcia', role: 'Admin', primary_location: 'LOC004', specialty: 'Office Manager', hourly_rate: 29, full_time: true },
+
+  // New staff for LOC004
+  { id: 'DR008', name: 'Dr. Natalie Wong', role: 'Dentist', primary_location: 'LOC004', specialty: 'General', hourly_rate: 155, full_time: true },
+  { id: 'DR009', name: 'Dr. Marcus Jackson', role: 'Dentist', primary_location: 'LOC004', specialty: 'Pediatric', hourly_rate: 160, full_time: false },
+  { id: 'HYG010', name: 'Benjamin Carter', role: 'Hygienist', primary_location: 'LOC004', specialty: 'Hygiene', hourly_rate: 58, full_time: true },
+  { id: 'HYG011', name: 'Amelia Zhang', role: 'Hygienist', primary_location: 'LOC004', specialty: 'Hygiene', hourly_rate: 55, full_time: true },
+  { id: 'ASST014', name: 'Tyler Robinson', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 26, full_time: true },
+  { id: 'ASST015', name: 'Alexandra Singh', role: 'Assistant', primary_location: 'LOC004', specialty: 'Pediatric', hourly_rate: 27, full_time: true },
+  { id: 'ASST016', name: 'Caleb Washington', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 25, full_time: true },
+  { id: 'ASST017', name: 'Hannah Patel', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 24, full_time: false },
+  { id: 'ADM008', name: 'Noah Reynolds', role: 'Admin', primary_location: 'LOC004', specialty: 'Reception', hourly_rate: 23, full_time: true },
+  { id: 'ADM009', name: 'Isabella Ramirez', role: 'Admin', primary_location: 'LOC004', specialty: 'Billing', hourly_rate: 26, full_time: true }
 ];
 
 // Create insurance provider data
@@ -89,7 +171,7 @@ const procedures = [
   { code: 'D4910', description: 'Periodontal Maintenance', category: 'Periodontic', avg_fee: 135, duration: 45 },
   
   // Prosthodontics
-  { code: 'D5110', description: 'Complete Denture - Maxillary', category: 'Prosthodontic', avg_fee: 1850, duration: 90 },
+  { code: 'D5110', description: 'Complete Denture - Maxillary', category: 'Prosthodontic', avg_fee: 1890, duration: 100 },
   { code: 'D5120', description: 'Complete Denture - Mandibular', category: 'Prosthodontic', avg_fee: 1850, duration: 90 },
   { code: 'D5213', description: 'Partial Denture - Maxillary', category: 'Prosthodontic', avg_fee: 1650, duration: 90 },
   { code: 'D5214', description: 'Partial Denture - Mandibular', category: 'Prosthodontic', avg_fee: 1650, duration: 90 },
@@ -119,10 +201,28 @@ const teeth = [
 function generatePatients() {
   const patients = [];
   const genders = ['Male', 'Female'];
-  const firstNamesMale = ['James', 'John', 'Robert', 'Michael', 'William', 'David', 'Richard', 'Joseph', 'Thomas', 'Charles'];
-  const firstNamesFemale = ['Mary', 'Patricia', 'Jennifer', 'Linda', 'Elizabeth', 'Barbara', 'Susan', 'Jessica', 'Sarah', 'Karen'];
-  const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Garcia', 'Rodriguez', 'Wilson'];
-  const zipCodes = ['97201', '97202', '97203', '97204', '97205'];
+  const firstNamesMale = [
+    'James', 'John', 'Robert', 'Michael', 'William', 'David', 'Richard', 'Joseph', 'Thomas', 'Charles',
+    'Kwame', 'Kenji', 'Mateo', 'Rajiv', 'Omar', 'Javier', 'Andre', 'Devon', 'Suresh', 'Jamal'
+  ];
+
+  const firstNamesFemale = [
+    'Mary', 'Patricia', 'Jennifer', 'Linda', 'Elizabeth', 'Barbara', 'Susan', 'Jessica', 'Sarah', 'Karen',
+    'Aisha', 'Sakura', 'Sofia', 'Priya', 'Fatima', 'Isabella', 'Naomi', 'Keisha', 'Lakshmi', 'Aaliyah'
+  ];
+
+  const lastNames = [
+    'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Garcia', 'Rodriguez', 'Wilson',
+    'Lee', 'Patel', 'Khan', 'Nguyen', 'Singh', 'Ali', 'Gupta', 'Silva', 'Kim', 'Pereira'
+  ];
+
+  const zipCodes = [
+    '97201', '97202', '97203', '97204', '97205', // Portland, OR
+    '02108', '02116', '02115', '02210', '02129', // Boston, MA
+    '10001', '10002', '10003', '10004', '10005', // New York, NY
+    '90210', '90211', '90212', '90213', '90214', // Beverly Hills, CA
+    '60601', '60602', '60603', '60604', '60605'  // Chicago, IL
+  ];
   
   for (let i = 1; i <= NUM_PATIENTS; i++) {
     const gender = genders[Math.floor(Math.random() * genders.length)];
@@ -131,11 +231,25 @@ function generatePatients() {
       : firstNamesFemale[Math.floor(Math.random() * firstNamesFemale.length)];
     const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
     
-    // Age between 18 and 85
-    const age = randomBetween(18, 85);
+    // More realistic age distribution - weighted toward 25-65
+    let age;
+    const ageDistribution = Math.random();
+    if (ageDistribution < 0.15) {
+      // 15% chance of child/teen (2-17)
+      age = randomBetween(2, 17);
+    } else if (ageDistribution < 0.70) {
+      // 55% chance of adult (25-65)
+      age = randomBetween(25, 65);
+    } else if (ageDistribution < 0.90) {
+      // 20% chance of young adult (18-24)
+      age = randomBetween(18, 24);
+    } else {
+      // 10% chance of senior (66-90)
+      age = randomBetween(66, 90);
+    }
     
     // 80% have insurance
-    const hasInsurance = Math.random() < 0.8;
+    const hasInsurance = Math.random() < 0.67;
     const insuranceProvider = hasInsurance 
       ? insuranceProviders[Math.floor(Math.random() * (insuranceProviders.length - 1))].name
       : 'No Insurance';
@@ -179,14 +293,23 @@ function generateAppointmentData(patients) {
     const regDate = new Date(patient.registration_date);
     const visitDate = randomDate(regDate > START_DATE ? regDate : START_DATE, END_DATE);
     const formattedVisitDate = formatDate(visitDate);
+    const appointmentTime = randomAppointmentTime();
     
     // Extract year and month
     const year = visitDate.getFullYear();
     const month = visitDate.getMonth() + 1;
     
-    // Select location and provider
+    // Select location 
     const location = locations[Math.floor(Math.random() * locations.length)];
-    const provider = providers[Math.floor(Math.random() * providers.length)];
+
+    // Filter providers who work at this location
+    const locationProviders = providers.filter(p => p.primary_location === location.id);
+
+    // If no providers available at this location, select a random one (fallback)
+    // Otherwise, select from providers at this location
+    const provider = locationProviders.length > 0 
+      ? locationProviders[Math.floor(Math.random() * locationProviders.length)]
+      : providers.find(p => p.primary_location === location.id) || providers[Math.floor(Math.random() * providers.length)];
     
     // Determine appointment status
     let statusRand = Math.random();
@@ -210,15 +333,60 @@ function generateAppointmentData(patients) {
     const numProceduresForVisit = randomBetween(1, 3);
     
     for (let p = 0; p < numProceduresForVisit; p++) {
-      // Select a procedure (weighted toward common procedures)
+      // Select a procedure based on age appropriateness
       let procedureIndex;
-      if (Math.random() < 0.6) { // 60% chance of common procedure
-        procedureIndex = Math.floor(Math.random() * 10); // First 10 are common procedures
+      const patientAge = patient.age;
+
+      // Age-appropriate procedure selection
+      if (patientAge < 18) {
+        // For children/teens
+        if (Math.random() < 0.7) {
+          // Higher chance of preventive, diagnostic, and orthodontic for younger patients
+          const youthProcedureCodes = ['D0120', 'D0150', 'D1120', 'D1208', 'D1351', 'D8080'];
+          const selectedCode = youthProcedureCodes[Math.floor(Math.random() * youthProcedureCodes.length)];
+          procedureIndex = procedures.findIndex(p => p.code === selectedCode);
+        } else {
+          // Some chance of other procedures
+          procedureIndex = Math.floor(Math.random() * procedures.length);
+        }
+      } else if (patientAge > 55) {
+        // For older adults
+        if (Math.random() < 0.6) {
+          // Higher chance of restorative, endodontic, and implant procedures
+          const seniorProcedureCodes = ['D2740', 'D2750', 'D3310', 'D3320', 'D3330', 'D5110', 'D5120', 'D6010', 'D6058'];
+          const selectedCode = seniorProcedureCodes[Math.floor(Math.random() * seniorProcedureCodes.length)];
+          procedureIndex = procedures.findIndex(p => p.code === selectedCode);
+        } else {
+          // Some chance of other procedures
+          procedureIndex = Math.floor(Math.random() * procedures.length);
+        }
       } else {
+        // For general adult population
+        if (Math.random() < 0.6) { // 60% chance of common procedure
+          procedureIndex = Math.floor(Math.random() * 10); // First 10 are common procedures
+        } else {
+          procedureIndex = Math.floor(Math.random() * procedures.length);
+        }
+      }
+
+      // Fallback if procedure not found
+      if (procedureIndex === -1) {
         procedureIndex = Math.floor(Math.random() * procedures.length);
       }
-      
+
       const procedure = procedures[procedureIndex];
+
+      // If this is a cleaning procedure, check if patient is due
+      if ((procedure.code === 'D1110' || procedure.code === 'D1120') && 
+          !isDueForRecall(patient.patient_id, procedure.code, formattedVisitDate)) {
+        // Skip this iteration if patient not due for cleaning
+        continue;
+      }
+
+      // If a cleaning was performed, update the last cleaning date
+      if (procedure.code === 'D1110' || procedure.code === 'D1120') {
+        patientLastCleaningDate[patient.patient_id] = formattedVisitDate;
+      }
       
       // Procedure ID
       const procedureId = `PROC${String(i * 10 + p + 1).padStart(6, '0')}`;
@@ -263,37 +431,56 @@ function generateAppointmentData(patients) {
         const needsTooth = ['Restorative', 'Endodontic', 'Periodontic', 'Implant'].includes(procedure.category);
         const toothNumber = needsTooth ? teeth[Math.floor(Math.random() * teeth.length)] : '';
         
-        // Treatment plan data (30% chance)
-        const hasTreatmentPlan = Math.random() < 0.3;
+        // Treatment plan data
         let treatmentPlanId = '';
         let treatmentPlanCreationDate = '';
         let treatmentPlanCompletionDate = '';
         let treatmentPlanCompletionRate = 0;
         let estimatedTotalCost = chargedAmount;
-        
-        if (hasTreatmentPlan) {
-          treatmentPlanId = `TP${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+
+        // Check if patient has an active treatment plan
+        if (activeTreatmentPlans[patient.patient_id]) {
+          // Use existing treatment plan
+          const existingPlan = activeTreatmentPlans[patient.patient_id];
+          treatmentPlanId = existingPlan.id;
+          treatmentPlanCreationDate = existingPlan.creationDate;
+          estimatedTotalCost = existingPlan.totalCost;
           
-          // Create creation date before visit (up to 90 days before)
-          const tpCreationDate = new Date(visitDate);
-          tpCreationDate.setDate(tpCreationDate.getDate() - randomBetween(0, 90));
-          treatmentPlanCreationDate = formatDate(tpCreationDate);
+          // Increment completion rate based on procedure
+          existingPlan.completedProcedures += 1;
           
-          // Determine if treatment plan is completed
-          const isCompleted = Math.random() < 0.6; // 60% of treatment plans are completed
+          // Update completion rate (simple model: each procedure is equal weight)
+          treatmentPlanCompletionRate = Math.min(100, 
+            Math.round((existingPlan.completedProcedures / existingPlan.totalProcedures) * 100));
           
-          if (isCompleted) {
-            // Completion date after visit (up to 180 days after)
-            const tpCompletionDate = new Date(visitDate);
-            tpCompletionDate.setDate(tpCompletionDate.getDate() + randomBetween(0, 180));
-            treatmentPlanCompletionDate = formatDate(tpCompletionDate);
-            treatmentPlanCompletionRate = 100;
-          } else {
-            treatmentPlanCompletionRate = randomBetween(10, 90);
+          // If plan is now complete, set completion date
+          if (treatmentPlanCompletionRate >= 100) {
+            treatmentPlanCompletionDate = formattedVisitDate;
+            // Remove from active plans
+            delete activeTreatmentPlans[patient.patient_id];
           }
+        } else if (Math.random() < 0.3 && ['Restorative', 'Endodontic', 'Prosthodontic', 'Implant'].includes(procedure.category)) {
+          // 30% chance to create new treatment plan for certain procedure categories
+          treatmentPlanId = `TP${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+          treatmentPlanCreationDate = formattedVisitDate;
           
-          // Estimated total cost (with some variation from actual)
-          estimatedTotalCost = Math.round(chargedAmount * (1 + Math.random()));
+          // Estimated number of procedures in this plan (1-5)
+          const totalProcedures = randomBetween(1, 5);
+          
+          // Store the new treatment plan
+          activeTreatmentPlans[patient.patient_id] = {
+            id: treatmentPlanId,
+            creationDate: treatmentPlanCreationDate,
+            totalProcedures: totalProcedures,
+            completedProcedures: 1, // This procedure counts as the first one
+            totalCost: estimatedTotalCost * totalProcedures
+          };
+          
+          // Update estimated total cost
+          estimatedTotalCost = activeTreatmentPlans[patient.patient_id].totalCost;
+          
+          // Initial completion rate
+          treatmentPlanCompletionRate = Math.round((1 / totalProcedures) * 100);
         }
         
         // Claim information
@@ -325,10 +512,12 @@ function generateAppointmentData(patients) {
           Provider_Role: provider.role,
           Provider_Specialty: provider.specialty,
           Date_of_Service: formattedVisitDate,
+          Appointment_Time: appointmentTime,
           Appointment_Status: appointmentStatus,
           Procedure_Code: procedure.code,
           Procedure_Description: procedure.description,
           Procedure_Category: procedure.category,
+          Procedure_Duration: procedure.duration,
           Tooth_Number: toothNumber,
           Charged_Amount: chargedAmount,
           Insurance_Provider: patient.insurance_provider,
@@ -369,10 +558,12 @@ function generateAppointmentData(patients) {
           Provider_Role: provider.role,
           Provider_Specialty: provider.specialty,
           Date_of_Service: formattedVisitDate,
+          Appointment_Time: appointmentTime,
           Appointment_Status: appointmentStatus,
           Procedure_Code: '',
           Procedure_Description: '',
           Procedure_Category: '',
+          Procedure_Duration: 0,
           Tooth_Number: '',
           Charged_Amount: 0,
           Insurance_Provider: patient.insurance_provider,
@@ -400,9 +591,11 @@ function generateAppointmentData(patients) {
     }
   }
   
-  // Sort appointments by date
+  // Sort appointments by date and time
   appointments.sort((a, b) => {
-    return new Date(a.Date_of_Service) - new Date(b.Date_of_Service);
+    const dateA = new Date(a.Date_of_Service + 'T' + a.Appointment_Time);
+    const dateB = new Date(b.Date_of_Service + 'T' + b.Appointment_Time);
+    return dateA - dateB;
   });
   
   return appointments;
@@ -438,10 +631,10 @@ function convertToCSV(data) {
 
 // Save datasets to CSV files
 const appointmentsCSV = convertToCSV(appointments);
-fs.writeFileSync('Dental_Data_Expanded.csv', appointmentsCSV);
+fs.writeFileSync('Pat_App_Data.csv', appointmentsCSV);
 
 console.log(`Created ${appointments.length} dental appointment records`);
-console.log(`Data saved to 'Dental_Data_Expanded.csv'`);
+console.log(`Data saved to 'Pat_App_Data.csv'`);
 
 // Calculate some metrics for verification
 const totalCharged = appointments.reduce((sum, a) => sum + (a.Charged_Amount || 0), 0);
