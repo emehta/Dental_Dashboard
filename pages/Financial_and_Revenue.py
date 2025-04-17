@@ -11,13 +11,13 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="CFO Financial Dashboard", page_icon="💲", layout="wide")
 
-st.title("CFO Financial Analytics Dashboard")
+st.title("Finance & Revenue Insights")
 
 # Load data
 @st.cache_data
 def load_data():
     try:
-        financial_data = pd.read_csv('./data/Financial_Data.csv')
+        financial_data = pd.read_csv('data/Financial_Data.csv')
         operations_data = pd.read_csv('data/Operations_Data.csv')
         patient_data = pd.read_csv('data/Pat_App_Data.csv')
         staff_data = pd.read_csv('data/Staff_Hours_Data.csv')
@@ -60,17 +60,78 @@ def load_data():
 
 financial_data, operations_data, patient_data, staff_data, equipment_data = load_data()
 
+
+# Add this after the load_data() function and its call
+def validate_financial_data(df):
+    """
+    Identifies and handles outliers in financial data.
+    
+    Parameters:
+    df (pandas.DataFrame): The financial data to validate
+    
+    Returns:
+    tuple: (clean_df, anomalies_df, has_anomalies)
+    """
+    if df is None or df.empty:
+        return df, pd.DataFrame(), False
+    
+    # Create a copy to avoid modifying the original
+    df_copy = df.copy()
+    
+    # Calculate statistical bounds for key metrics
+    revenue_q75 = df_copy['Total_Revenue'].quantile(0.75)
+    revenue_q25 = df_copy['Total_Revenue'].quantile(0.25)
+    revenue_iqr = revenue_q75 - revenue_q25
+    revenue_upper_bound = revenue_q75 + 3 * revenue_iqr  # Using 3*IQR for extreme outliers
+    
+    expense_q75 = df_copy['Total_Expenses'].quantile(0.75)
+    expense_q25 = df_copy['Total_Expenses'].quantile(0.25)
+    expense_iqr = expense_q75 - expense_q25
+    expense_upper_bound = expense_q75 + 3 * expense_iqr
+    
+    # Flag anomalies
+    revenue_anomalies = df_copy['Total_Revenue'] > revenue_upper_bound
+    expense_anomalies = df_copy['Total_Expenses'] > expense_upper_bound
+    
+    # Combine anomalies
+    anomalies = revenue_anomalies | expense_anomalies
+    
+    # Extract and log anomalies
+    anomalies_df = df_copy[anomalies].copy()
+    clean_df = df_copy[~anomalies].copy()
+    
+    has_anomalies = len(anomalies_df) > 0
+    
+    return clean_df, anomalies_df, has_anomalies
+
+# Apply validation after loading data but before filtering
+financial_data_clean, financial_anomalies, has_anomalies = validate_financial_data(financial_data)
+
+# Replace the original with the clean data
+financial_data = financial_data_clean
+
+
+
 if all([financial_data is not None, operations_data is not None, patient_data is not None, 
       staff_data is not None, equipment_data is not None]):
     
-    # Sidebar filters
+     #Sidebar filters
     st.sidebar.header("Filters")
-    
+
     # Date range filter
     min_date = financial_data['Date'].min().date()
     max_date = financial_data['Date'].max().date()
-    
-    start_date = st.sidebar.date_input("Start Date", min_date, min_value=min_date, max_value=max_date)
+
+    # Set default start date to January 1, 2024
+    default_start_date = datetime(2022, 1, 1).date()
+    # Make sure the default date is within the valid range
+    if default_start_date < min_date:
+        default_start_date = min_date
+    elif default_start_date > max_date:
+        default_start_date = min_date
+
+    # Date filter
+    start_date = st.sidebar.date_input("Start Date", default_start_date, min_value=min_date, max_value=max_date)
     end_date = st.sidebar.date_input("End Date", max_date, min_value=min_date, max_value=max_date)
     
     # Location filter
@@ -135,40 +196,193 @@ if all([financial_data is not None, operations_data is not None, patient_data is
     
     # Display key metrics
     st.markdown("## Key Financial Metrics")
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
+
+    # Add dynamic location title
+    if selected_location == 'All':
+        location_title = "All Locations"
+    else:
+        location_title = selected_location
+
+    # Get the relevant period data based on the selected_period
+    if selected_period == 'Year':
+        # Get the most recent year's data
+        max_year = filtered_financial['Year'].max()
+        period_data = filtered_financial[filtered_financial['Year'] == max_year]
+        period_title = f"{max_year} (Yearly Data)"
+    elif selected_period == 'Quarter':
+        # Create a quarter column if it doesn't exist
+        if 'Quarter' not in filtered_financial.columns:
+            filtered_financial['Quarter'] = filtered_financial['Date'].dt.to_period('Q').astype(str)
+        
+        # Get the most recent quarter's data
+        max_quarter = filtered_financial['Quarter'].max()
+        period_data = filtered_financial[filtered_financial['Quarter'] == max_quarter]
+        period_title = f"{max_quarter} (Quarterly Data)"
+    elif selected_period == 'Month':
+        # Get the most recent month's data
+        max_month = filtered_financial['Month_Year'].max()
+        period_data = filtered_financial[filtered_financial['Month_Year'] == max_month]
+        period_title = f"{max_month} (Monthly Data)"
+    else:  # All Time
+        period_data = filtered_financial.copy()
+        period_title = "All Time Data"
+
+    # Calculate metrics based on the filtered period data
+    period_total_revenue = period_data['Total_Revenue'].sum()
+    period_total_expenses = period_data['Total_Expenses'].sum() if 'Total_Expenses' in period_data.columns else 0
+    period_total_ebitda = period_data['EBITDA'].sum() if 'EBITDA' in period_data.columns else 0
+    period_ebitda_margin = (period_total_ebitda / period_total_revenue * 100) if period_total_revenue > 0 else 0
+    period_avg_collection_rate = period_data['Collection_Rate'].mean() if 'Collection_Rate' in period_data.columns else 0
+    period_avg_dso = period_data['DSO'].mean() if 'DSO' in period_data.columns else 0
+    period_chair_utilization = period_data['Chair_Utilization'].mean() if 'Chair_Utilization' in period_data.columns else 0
+
+    # Calculate revenue per patient
+    if 'Total_Patient_Visits' in period_data.columns:
+        total_visits = period_data['Total_Patient_Visits'].sum()
+        period_revenue_per_patient = period_total_revenue / total_visits if total_visits > 0 else 0
+    else:
+        period_revenue_per_patient = 0
+
+    # Include the time period and date range in the subtitle
+    date_range = f"{start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}"
+
+    # Create formatted subtitle with location, period, and date range
+    st.markdown(f"##### {location_title} | {period_title} | {date_range}")
+
+    # Calculate period-over-period changes based on the selected period
+    if selected_period == 'Year' and len(filtered_financial['Year'].unique()) > 1:
+        # Get previous year data
+        prev_year = max_year - 1
+        prev_period_data = filtered_financial[filtered_financial['Year'] == prev_year]
+        
+        prev_total_revenue = prev_period_data['Total_Revenue'].sum()
+        prev_total_ebitda = prev_period_data['EBITDA'].sum() if 'EBITDA' in prev_period_data.columns else 0
+        prev_chair_utilization = prev_period_data['Chair_Utilization'].mean() if 'Chair_Utilization' in prev_period_data.columns else 0
+        
+        if 'Total_Patient_Visits' in prev_period_data.columns:
+            prev_visits = prev_period_data['Total_Patient_Visits'].sum()
+            prev_revenue_per_patient = prev_total_revenue / prev_visits if prev_visits > 0 else 0
+        else:
+            prev_revenue_per_patient = 0
+        
+        # Calculate YoY changes
+        revenue_delta = ((period_total_revenue / prev_total_revenue) - 1) * 100 if prev_total_revenue > 0 else None
+        ebitda_delta = ((period_total_ebitda / prev_total_ebitda) - 1) * 100 if prev_total_ebitda > 0 else None
+        chair_util_delta = ((period_chair_utilization / prev_chair_utilization) - 1) * 100 if prev_chair_utilization > 0 else None
+        rpp_delta = ((period_revenue_per_patient / prev_revenue_per_patient) - 1) * 100 if prev_revenue_per_patient > 0 else None
+        
+        delta_label = "(YoY)"
+
+    elif selected_period == 'Quarter' and len(filtered_financial['Quarter'].unique()) > 1:
+        # Get previous quarter data
+        quarters = sorted(filtered_financial['Quarter'].unique())
+        max_quarter_index = quarters.index(max_quarter)
+        
+        if max_quarter_index > 0:
+            prev_quarter = quarters[max_quarter_index - 1]
+            prev_period_data = filtered_financial[filtered_financial['Quarter'] == prev_quarter]
+            
+            prev_total_revenue = prev_period_data['Total_Revenue'].sum()
+            prev_total_ebitda = prev_period_data['EBITDA'].sum() if 'EBITDA' in prev_period_data.columns else 0
+            prev_chair_utilization = prev_period_data['Chair_Utilization'].mean() if 'Chair_Utilization' in prev_period_data.columns else 0
+            
+            if 'Total_Patient_Visits' in prev_period_data.columns:
+                prev_visits = prev_period_data['Total_Patient_Visits'].sum()
+                prev_revenue_per_patient = prev_total_revenue / prev_visits if prev_visits > 0 else 0
+            else:
+                prev_revenue_per_patient = 0
+            
+            # Calculate QoQ changes
+            revenue_delta = ((period_total_revenue / prev_total_revenue) - 1) * 100 if prev_total_revenue > 0 else None
+            ebitda_delta = ((period_total_ebitda / prev_total_ebitda) - 1) * 100 if prev_total_ebitda > 0 else None
+            chair_util_delta = ((period_chair_utilization / prev_chair_utilization) - 1) * 100 if prev_chair_utilization > 0 else None
+            rpp_delta = ((period_revenue_per_patient / prev_revenue_per_patient) - 1) * 100 if prev_revenue_per_patient > 0 else None
+            
+            delta_label = "(QoQ)"
+        else:
+            revenue_delta = None
+            ebitda_delta = None
+            chair_util_delta = None
+            rpp_delta = None
+            delta_label = ""
+            
+    elif selected_period == 'Month' and len(filtered_financial['Month_Year'].unique()) > 1:
+        # Get previous month data
+        months = sorted(filtered_financial['Month_Year'].unique())
+        max_month_index = months.index(max_month)
+        
+        if max_month_index > 0:
+            prev_month = months[max_month_index - 1]
+            prev_period_data = filtered_financial[filtered_financial['Month_Year'] == prev_month]
+            
+            prev_total_revenue = prev_period_data['Total_Revenue'].sum()
+            prev_total_ebitda = prev_period_data['EBITDA'].sum() if 'EBITDA' in prev_period_data.columns else 0
+            prev_chair_utilization = prev_period_data['Chair_Utilization'].mean() if 'Chair_Utilization' in prev_period_data.columns else 0
+            
+            if 'Total_Patient_Visits' in prev_period_data.columns:
+                prev_visits = prev_period_data['Total_Patient_Visits'].sum()
+                prev_revenue_per_patient = prev_total_revenue / prev_visits if prev_visits > 0 else 0
+            else:
+                prev_revenue_per_patient = 0
+            
+            # Calculate MoM changes
+            revenue_delta = ((period_total_revenue / prev_total_revenue) - 1) * 100 if prev_total_revenue > 0 else None
+            ebitda_delta = ((period_total_ebitda / prev_total_ebitda) - 1) * 100 if prev_total_ebitda > 0 else None
+            chair_util_delta = ((period_chair_utilization / prev_chair_utilization) - 1) * 100 if prev_chair_utilization > 0 else None
+            rpp_delta = ((period_revenue_per_patient / prev_revenue_per_patient) - 1) * 100 if prev_revenue_per_patient > 0 else None
+            
+            delta_label = "(MoM)"
+        else:
+            revenue_delta = None
+            ebitda_delta = None
+            chair_util_delta = None
+            rpp_delta = None
+            delta_label = ""
+    else:
+        # No period-over-period comparison for All Time
+        revenue_delta = None
+        ebitda_delta = None
+        chair_util_delta = None
+        rpp_delta = None
+        delta_label = ""
+
+    # Display the metrics in columns
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        st.metric("Total Revenue", f"${total_revenue:,.0f}", 
-                 delta=f"{filtered_financial['Revenue_YoY_Change'].mean():.1f}%" if 'Revenue_YoY_Change' in filtered_financial.columns else None,
-                 delta_color="normal")
-    
+        st.metric("Total Revenue", f"${period_total_revenue:,.0f}", 
+                delta=f"{revenue_delta:.1f}% {delta_label}" if revenue_delta is not None else None,
+                delta_color="normal")
+
     with col2:
-        st.metric("EBITDA", f"${total_ebitda:,.0f}", 
-                 delta=f"{filtered_financial['EBITDA_YoY_Change'].mean():.1f}%" if 'EBITDA_YoY_Change' in filtered_financial.columns else None,
-                 delta_color="normal")
-    
+        st.metric("EBITDA", f"${period_total_ebitda:,.0f}", 
+                delta=f"{ebitda_delta:.1f}% {delta_label}" if ebitda_delta is not None else None,
+                delta_color="normal")
+
     with col3:
-        st.metric("EBITDA Margin", f"{ebitda_margin:.1f}%")
-    
+        st.metric("Chair Utilization", f"{period_chair_utilization:.1f}%", 
+                delta=f"{chair_util_delta:.1f}% {delta_label}" if chair_util_delta is not None else None,
+                delta_color="normal")
+
     with col4:
-        st.metric("Collection Rate", f"{avg_collection_rate:.1f}%")
-    
-    with col5:
-        st.metric("Avg DSO", f"{avg_dso:.1f} days")
+        st.metric("Revenue Per Patient", f"${period_revenue_per_patient:.0f}", 
+                delta=f"{rpp_delta:.1f}% {delta_label}" if rpp_delta is not None else None,
+                delta_color="normal")
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Revenue Analysis",
-        "Profitability & Margins",
-        "AR & Collections",
-        "Financial KPIs",
-        "Financial Forecasting"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "Revenue Overview",
+        "Expenses",
+        "Cash Flow",
+        "Accounts Receivable",
+        "KPIs",
+        "Trends & Forecasting",
+        "Procedure Profitability"
     ])
     
-    # Tab 1: Revenue Analysis
+# Tab 1: Revenue Overview
     with tab1:
-        st.subheader("Revenue Analysis")
+        st.subheader("")
         
         # Revenue Over Time
         st.markdown("### Revenue Trends")
@@ -186,7 +400,8 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             filtered_financial['Quarter'] = filtered_financial['Date'].dt.to_period('Q')
             revenue_trends = filtered_financial.groupby('Quarter').agg({
                 'Total_Revenue': 'sum',
-                'Revenue_MoM_Change': 'mean'
+                # Using MoM change for now, but ideally this would be a quarterly change metric
+                'Revenue_YoY_Change': 'mean' if 'Revenue_YoY_Change' in filtered_financial.columns else None
             }).reset_index()
             revenue_trends['Quarter'] = revenue_trends['Quarter'].astype(str)
             revenue_trends = revenue_trends.sort_values('Quarter')
@@ -243,6 +458,16 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                             showarrow=False,
                             yshift=10
                         )
+            elif selected_period == 'Quarter' and 'Revenue_YoY_Change' in revenue_trends.columns:
+                for i, row in revenue_trends.iterrows():
+                    if not pd.isna(row['Revenue_YoY_Change']):
+                        fig.add_annotation(
+                            x=row[x_axis],
+                            y=row['Total_Revenue'],
+                            text=f"{row['Revenue_YoY_Change']:.1f}%",
+                            showarrow=False,
+                            yshift=10
+                        )
             
             # Update layout
             fig.update_layout(
@@ -257,10 +482,17 @@ if all([financial_data is not None, operations_data is not None, patient_data is
         
         # Revenue by Service Line
         st.markdown("### Revenue by Service Line")
-        
+
         # Get service line columns
-        service_columns = [col for col in filtered_financial.columns if col.startswith('Revenue_') and col != 'Revenue_MoM_Change' and col != 'Revenue_YoY_Change' and col != 'Revenue_Per_Square_Foot' and col != 'Revenue_Per_Patient']
-        
+        service_columns = [
+            col for col in filtered_financial.columns 
+            if col.startswith('Revenue_') and 
+            col != 'Revenue_MoM_Change' and 
+            col != 'Revenue_YoY_Change' and 
+            col != 'Revenue_Per_Square_Foot' and 
+            col != 'Revenue_Per_Patient'
+        ]
+
         if service_columns:
             # Group by year-month and sum service revenue
             service_revenue = filtered_financial.groupby('Month_Year')[service_columns].sum().reset_index()
@@ -274,52 +506,61 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 value_name='Revenue'
             )
             
-            # Clean service line names
-            service_revenue_melted['Service_Line'] = service_revenue_melted['Service_Line'].str.replace('Revenue_', '').str.replace('_', ' ')
+            # Create a mapping between original column names and clean display names
+            # This ensures consistency between filtering and display
+            display_names = {col: col.replace('Revenue_', '').replace('_', ' ') for col in service_columns}
+            
+            # Create a new column with clean names for display
+            service_revenue_melted['Display_Name'] = service_revenue_melted['Service_Line'].map(display_names)
+
+            # Create a copy for the pie chart that won't be filtered
+            service_revenue_melted_all = service_revenue_melted.copy()
             
             # Filter by selected service line
             if selected_service != 'All':
-                clean_service = selected_service.replace('_', ' ')
-                service_revenue_melted = service_revenue_melted[service_revenue_melted['Service_Line'] == clean_service]
+                # Find the corresponding original column name
+                service_col = f"Revenue_{selected_service}"
+                if service_col in service_columns:
+                    service_revenue_melted = service_revenue_melted[service_revenue_melted['Service_Line'] == service_col]
             
             # Create stacked bar chart
             fig = px.bar(
                 service_revenue_melted,
                 x='Month_Year',
                 y='Revenue',
-                color='Service_Line',
+                color='Display_Name',  # Use display names for the legend
                 title="Revenue by Service Line Over Time",
                 labels={
                     'Month_Year': 'Month',
                     'Revenue': 'Revenue ($)',
-                    'Service_Line': 'Service Line'
+                    'Display_Name': 'Service Line'
                 }
             )
-            
-            # Update layout
+
+            # Update layout with legend at the bottom
             fig.update_layout(
                 xaxis_title="Month",
                 yaxis_title="Revenue ($)",
                 yaxis=dict(tickprefix="$"),
                 legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
+                    orientation="h",  # Horizontal orientation
+                    yanchor="top",    # Anchor to top of the legend box
+                    y=-0.15,          # Position below the chart (negative value)
+                    xanchor="center", # Center the legend
+                    x=0.5             # Center position horizontally
                 )
             )
-            
+
             st.plotly_chart(fig, use_container_width=True)
             
             # Create a pie chart of service distribution
-            service_totals = service_revenue_melted.groupby('Service_Line')['Revenue'].sum().reset_index()
+            service_totals = service_revenue_melted_all.groupby('Display_Name')['Revenue'].sum().reset_index()
             service_totals = service_totals.sort_values('Revenue', ascending=False)
             
             fig = px.pie(
                 service_totals,
                 values='Revenue',
-                names='Service_Line',
+                names='Display_Name',
                 title="Revenue Distribution by Service Line",
                 hole=0.4
             )
@@ -330,8 +571,8 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No service line revenue data available.")
-        
-        # Revenue by Location
+            
+        # Revenue by Location - Fix: moved outside the else block to show regardless of service column presence
         if selected_location == 'All':
             st.markdown("### Revenue by Location")
             
@@ -367,166 +608,144 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             st.plotly_chart(fig, use_container_width=True)
             
             # Create a heatmap of service lines by location
-            service_by_location = filtered_financial.groupby('Location_Name')[service_columns].sum().reset_index()
-            
-            # Melt for heatmap
-            service_location_melted = pd.melt(
-                service_by_location,
-                id_vars=['Location_Name'],
-                value_vars=service_columns,
-                var_name='Service_Line',
-                value_name='Revenue'
-            )
-            
-            # Clean service line names
-            service_location_melted['Service_Line'] = service_location_melted['Service_Line'].str.replace('Revenue_', '').str.replace('_', ' ')
-            
-            # Create pivot for heatmap
-            service_pivot = service_location_melted.pivot(index='Location_Name', columns='Service_Line', values='Revenue')
-            
-            # Create heatmap
-            fig = px.imshow(
-                service_pivot,
-                text_auto='.2s',
-                aspect="auto",
-                color_continuous_scale=px.colors.sequential.Blues,
-                title="Service Line Revenue by Location"
-            )
-            
-            # Update layout
-            fig.update_layout(
-                xaxis_title="Service Line",
-                yaxis_title="Location",
-                coloraxis_colorbar=dict(title="Revenue ($)")
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    
-    # Tab 2: Profitability & Margins
-    with tab2:
-        st.subheader("Profitability & Margins Analysis")
-        
-        # EBITDA Trends
-        st.markdown("### EBITDA & Margin Trends")
-        
-        # Group by month/period
-        if selected_period == 'Month':
-            ebitda_trends = filtered_financial.groupby('Month_Year').agg({
-                'Total_Revenue': 'sum',
-                'EBITDA': 'sum',
-                'EBITDA_Margin': 'mean',
-                'EBITDA_MoM_Change': 'mean'
-            }).reset_index()
-            ebitda_trends = ebitda_trends.sort_values('Month_Year')
-            x_axis = 'Month_Year'
-            title_period = "Monthly"
-        elif selected_period == 'Quarter':
-            filtered_financial['Quarter'] = filtered_financial['Date'].dt.to_period('Q')
-            ebitda_trends = filtered_financial.groupby('Quarter').agg({
-                'Total_Revenue': 'sum',
-                'EBITDA': 'sum',
-                'EBITDA_Margin': 'mean'
-            }).reset_index()
-            ebitda_trends['Quarter'] = ebitda_trends['Quarter'].astype(str)
-            ebitda_trends = ebitda_trends.sort_values('Quarter')
-            x_axis = 'Quarter'
-            title_period = "Quarterly"
-        elif selected_period == 'Year':
-            ebitda_trends = filtered_financial.groupby('Year').agg({
-                'Total_Revenue': 'sum',
-                'EBITDA': 'sum',
-                'EBITDA_Margin': 'mean',
-                'EBITDA_YoY_Change': 'mean'
-            }).reset_index()
-            ebitda_trends = ebitda_trends.sort_values('Year')
-            x_axis = 'Year'
-            title_period = "Annual"
-        else:  # All Time
-            ebitda_trends = filtered_financial.groupby('Month_Year').agg({
-                'Total_Revenue': 'sum',
-                'EBITDA': 'sum',
-                'EBITDA_Margin': 'mean'
-            }).reset_index()
-            ebitda_trends = ebitda_trends.sort_values('Month_Year')
-            x_axis = 'Month_Year'
-            title_period = "All Time"
-        
-        # Calculate margin if not already in the data
-        if 'EBITDA_Margin' not in ebitda_trends.columns:
-            ebitda_trends['EBITDA_Margin'] = (ebitda_trends['EBITDA'] / ebitda_trends['Total_Revenue'] * 100).fillna(0)
-        
-        if not ebitda_trends.empty:
-            # Create EBITDA with margin overlay chart
-            fig = go.Figure()
-            
-            fig.add_trace(go.Bar(
-                x=ebitda_trends[x_axis],
-                y=ebitda_trends['EBITDA'],
-                name='EBITDA',
-                marker_color='rgba(0, 123, 255, 0.7)'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=ebitda_trends[x_axis],
-                y=ebitda_trends['EBITDA_Margin'],
-                name='EBITDA Margin (%)',
-                mode='lines+markers',
-                marker=dict(color='red'),
-                line=dict(color='red'),
-                yaxis='y2'
-            ))
-            
-            # Add annotations for MoM or YoY changes if available
-            if selected_period == 'Month' and 'EBITDA_MoM_Change' in ebitda_trends.columns:
-                for i, row in ebitda_trends.iterrows():
-                    if not pd.isna(row['EBITDA_MoM_Change']):
-                        fig.add_annotation(
-                            x=row[x_axis],
-                            y=row['EBITDA'],
-                            text=f"{row['EBITDA_MoM_Change']:.1f}%",
-                            showarrow=False,
-                            yshift=10
-                        )
-            elif selected_period == 'Year' and 'EBITDA_YoY_Change' in ebitda_trends.columns:
-                for i, row in ebitda_trends.iterrows():
-                    if not pd.isna(row['EBITDA_YoY_Change']):
-                        fig.add_annotation(
-                            x=row[x_axis],
-                            y=row['EBITDA'],
-                            text=f"{row['EBITDA_YoY_Change']:.1f}%",
-                            showarrow=False,
-                            yshift=10
-                        )
-            
-            # Update layout
-            fig.update_layout(
-                title=f"{title_period} EBITDA and Margin Trend",
-                xaxis_title="Period",
-                yaxis=dict(
-                    title="EBITDA ($)",
-                    tickprefix="$"
-                ),
-                yaxis2=dict(
-                    title="EBITDA Margin (%)",
-                    overlaying='y',
-                    side='right',
-                    range=[0, 100]
-                ),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
+            if service_columns:  # Only show service by location heatmap if service columns exist
+                service_by_location = filtered_financial.groupby('Location_Name')[service_columns].sum().reset_index()
+                
+                # Melt for heatmap
+                service_location_melted = pd.melt(
+                    service_by_location,
+                    id_vars=['Location_Name'],
+                    value_vars=service_columns,
+                    var_name='Service_Line',
+                    value_name='Revenue'
                 )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No EBITDA trend data available for the selected filters.")
-        
-        # Cost Breakdown Analysis
-        st.markdown("### Cost Breakdown Analysis")
+                
+                # Clean service line names
+                service_location_melted['Service_Line'] = service_location_melted['Service_Line'].str.replace('Revenue_', '').str.replace('_', ' ')
+                
+                # Create pivot for heatmap
+                service_pivot = service_location_melted.pivot(index='Location_Name', columns='Service_Line', values='Revenue')
+                
+                # Create heatmap
+                fig = px.imshow(
+                    service_pivot,
+                    text_auto='.2s',
+                    aspect="auto",
+                    color_continuous_scale=px.colors.sequential.Blues,
+                    title="Service Line Revenue by Location"
+                )
+                
+                # Update layout
+                fig.update_layout(
+                    xaxis_title="Service Line",
+                    yaxis_title="Location",
+                    coloraxis_colorbar=dict(title="Revenue ($)")
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Revenue KPI Trends
+                st.markdown("### Revenue KPI Trends")
+                
+                # Calculate Revenue KPIs if they don't exist
+                if 'Revenue_Per_Patient' not in filtered_financial.columns:
+                    filtered_financial['Revenue_Per_Patient'] = filtered_financial['Total_Revenue'] / filtered_financial['Total_Patient_Visits']
+                
+                if 'Revenue_Per_Chair' not in filtered_financial.columns:
+                    filtered_financial['Revenue_Per_Chair'] = filtered_financial['Total_Revenue'] / filtered_financial['Chair_Capacity']
+                
+                if 'Revenue_Per_Hour' not in filtered_financial.columns:
+                    filtered_financial['Revenue_Per_Hour'] = filtered_financial['Total_Revenue'] / filtered_financial['Used_Chair_Hours']
+                
+                # Group by month and calculate averages
+                kpi_trends = filtered_financial.groupby('Month_Year').agg({
+                    'Revenue_Per_Patient': 'mean',
+                    'Revenue_Per_Chair': 'mean',
+                    'Revenue_Per_Hour': 'mean',
+                    'Total_Revenue': 'sum',
+                    'Total_Patient_Visits': 'sum',
+                    'Used_Chair_Hours': 'sum'
+                }).reset_index()
+                
+                # Create three columns for metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    latest_revenue_per_patient = kpi_trends['Revenue_Per_Patient'].iloc[-1]
+                    st.metric(
+                        "Latest Revenue Per Patient",
+                        f"${latest_revenue_per_patient:,.2f}",
+                        f"{((latest_revenue_per_patient - kpi_trends['Revenue_Per_Patient'].iloc[-2]) / kpi_trends['Revenue_Per_Patient'].iloc[-2] * 100):.1f}%"
+                    )
+                
+                with col2:
+                    latest_revenue_per_chair = kpi_trends['Revenue_Per_Chair'].iloc[-1]
+                    st.metric(
+                        "Latest Revenue Per Chair",
+                        f"${latest_revenue_per_chair:,.2f}",
+                        f"{((latest_revenue_per_chair - kpi_trends['Revenue_Per_Chair'].iloc[-2]) / kpi_trends['Revenue_Per_Chair'].iloc[-2] * 100):.1f}%"
+                    )
+                
+                with col3:
+                    latest_revenue_per_hour = kpi_trends['Revenue_Per_Hour'].iloc[-1]
+                    st.metric(
+                        "Latest Revenue Per Hour",
+                        f"${latest_revenue_per_hour:,.2f}",
+                        f"{((latest_revenue_per_hour - kpi_trends['Revenue_Per_Hour'].iloc[-2]) / kpi_trends['Revenue_Per_Hour'].iloc[-2] * 100):.1f}%"
+                    )
+                
+                # Create multi-line chart for trends
+                fig = go.Figure()
+                
+                # Add traces for each KPI
+                fig.add_trace(go.Scatter(
+                    x=kpi_trends['Month_Year'],
+                    y=kpi_trends['Revenue_Per_Patient'],
+                    mode='lines+markers',
+                    name='Revenue Per Patient',
+                    line=dict(color='#1f77b4', width=2)
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=kpi_trends['Month_Year'],
+                    y=kpi_trends['Revenue_Per_Chair'],
+                    mode='lines+markers',
+                    name='Revenue Per Chair',
+                    line=dict(color='#2ca02c', width=2)
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=kpi_trends['Month_Year'],
+                    y=kpi_trends['Revenue_Per_Hour'],
+                    mode='lines+markers',
+                    name='Revenue Per Hour',
+                    line=dict(color='#ff7f0e', width=2)
+                ))
+                
+                # Update layout
+                fig.update_layout(
+                    title="Revenue KPI Trends Over Time",
+                    xaxis_title="Month",
+                    yaxis_title="Amount ($)",
+                    yaxis=dict(
+                        tickprefix="$",
+                        tickformat=",.0f"
+                    ),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ),
+                    hovermode='x unified'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+    
+    # Tab 2: Expense Analysis
+    with tab2:
+        st.subheader("Expense Analysis")
         
         # Get expense columns
         expense_columns = [col for col in filtered_financial.columns if col.startswith('Labor_') or 
@@ -570,10 +789,10 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 yaxis=dict(tickprefix="$"),
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
+                    yanchor="top",
+                    y=-0.2,  # Position below the chart
+                    xanchor="center",
+                    x=0.5
                 )
             )
             
@@ -730,9 +949,164 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             
             st.dataframe(display_df, use_container_width=True)
     
-    # Tab 3: AR & Collections
+    # Tab 3: Cash Flow
     with tab3:
-        st.subheader("Accounts Receivable & Collections Analysis")
+        st.subheader("Cash Flow Analysis")
+        
+        # Check if we have the necessary data for cash flow projection
+        if all(col in filtered_financial.columns for col in ['Total_Revenue', 'Collection_Rate', 'Total_Expenses']):
+            # Group by month
+            monthly_financials = filtered_financial.groupby('Month_Year').agg({
+                'Total_Revenue': 'sum',
+                'Collection_Rate': 'mean',
+                'Total_Expenses': 'sum',
+                'Date': 'first'  # Keep a date for proper time series ordering
+            }).reset_index()
+            
+            # Sort by date
+            monthly_financials = monthly_financials.sort_values('Date')
+            
+            # Calculate historical cash flow
+            monthly_financials['Collections'] = monthly_financials['Total_Revenue'] * (monthly_financials['Collection_Rate'] / 100)
+            monthly_financials['Cash_Flow'] = monthly_financials['Collections'] - monthly_financials['Total_Expenses']
+            
+            # Check if we have enough data for forecasting
+            if len(monthly_financials) >= 6:  # Need at least 6 months of data for a meaningful forecast
+                # Number of periods to forecast
+                forecast_periods = 3  # Forecast next 3 months
+                
+                # Simple forecasting using moving averages
+                # For revenue forecast
+                window = min(3, len(monthly_financials))  # Use up to 3 months for moving average
+                
+                revenue_ma = monthly_financials['Total_Revenue'].rolling(window=window).mean().iloc[-1]
+                collection_rate_ma = monthly_financials['Collection_Rate'].rolling(window=window).mean().iloc[-1]
+                expenses_ma = monthly_financials['Total_Expenses'].rolling(window=window).mean().iloc[-1]
+                
+                # Create a date range for the forecast
+                last_date = monthly_financials['Date'].max()
+                forecast_dates = pd.date_range(start=last_date + pd.DateOffset(months=1), periods=forecast_periods, freq='MS')
+                
+                # Create a DataFrame for the forecast
+                forecast_df = pd.DataFrame({
+                    'Date': forecast_dates,
+                    'Month_Year': [d.strftime('%Y-%m') for d in forecast_dates],
+                    'Total_Revenue': [revenue_ma] * forecast_periods,
+                    'Collection_Rate': [collection_rate_ma] * forecast_periods,
+                    'Total_Expenses': [expenses_ma] * forecast_periods,
+                    'Type': ['Forecast'] * forecast_periods
+                })
+                
+                # Calculate forecast cash flow
+                forecast_df['Collections'] = forecast_df['Total_Revenue'] * (forecast_df['Collection_Rate'] / 100)
+                forecast_df['Cash_Flow'] = forecast_df['Collections'] - forecast_df['Total_Expenses']
+                
+                # Prepare historical data for plotting
+                historical_df = pd.DataFrame({
+                    'Date': monthly_financials['Date'],
+                    'Month_Year': monthly_financials['Month_Year'],
+                    'Collections': monthly_financials['Collections'],
+                    'Total_Expenses': monthly_financials['Total_Expenses'],
+                    'Cash_Flow': monthly_financials['Cash_Flow'],
+                    'Type': ['Historical'] * len(monthly_financials)
+                })
+                
+                # Combine historical and forecast data
+                combined_df = pd.concat([historical_df, forecast_df[['Date', 'Month_Year', 'Collections', 'Total_Expenses', 'Cash_Flow', 'Type']]])
+                
+                # Create the cash flow chart
+                fig = go.Figure()
+                
+                # Add collections
+                fig.add_trace(go.Bar(
+                    x=historical_df['Month_Year'],
+                    y=historical_df['Collections'],
+                    name='Historical Collections',
+                    marker_color='rgba(0, 123, 255, 0.7)'
+                ))
+                
+                fig.add_trace(go.Bar(
+                    x=forecast_df['Month_Year'],
+                    y=forecast_df['Collections'],
+                    name='Forecast Collections',
+                    marker_color='rgba(0, 123, 255, 0.3)'
+                ))
+                
+                # Add expenses
+                fig.add_trace(go.Bar(
+                    x=historical_df['Month_Year'],
+                    y=historical_df['Total_Expenses'],
+                    name='Historical Expenses',
+                    marker_color='rgba(255, 99, 132, 0.7)'
+                ))
+                
+                fig.add_trace(go.Bar(
+                    x=forecast_df['Month_Year'],
+                    y=forecast_df['Total_Expenses'],
+                    name='Forecast Expenses',
+                    marker_color='rgba(255, 99, 132, 0.3)'
+                ))
+                
+                # Add cash flow line
+                fig.add_trace(go.Scatter(
+                    x=combined_df['Month_Year'],
+                    y=combined_df['Cash_Flow'],
+                    name='Cash Flow',
+                    mode='lines+markers',
+                    line=dict(color='black', width=2)
+                ))
+                
+                # Update layout
+                fig.update_layout(
+                    title="Cash Flow Projection",
+                    xaxis_title="Month",
+                    yaxis=dict(
+                        title="Amount ($)",
+                        tickprefix="$"
+                    ),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ),
+                    barmode='group'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True, key="tab6_cash_flow_projection_1")
+                
+                # Display cash flow metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        "Next Month Cash Flow", 
+                        f"${forecast_df['Cash_Flow'].iloc[0]:,.0f}",
+                        delta=f"{(forecast_df['Cash_Flow'].iloc[0] / historical_df['Cash_Flow'].iloc[-1] - 1) * 100:.1f}%" if historical_df['Cash_Flow'].iloc[-1] != 0 else None
+                    )
+                
+                with col2:
+                    st.metric(
+                        "3-Month Forecast Cash Flow", 
+                        f"${forecast_df['Cash_Flow'].sum():,.0f}"
+                    )
+                
+                with col3:
+                    last_3_months = historical_df['Cash_Flow'].tail(3).sum()
+                    st.metric(
+                        "vs. Last 3 Months", 
+                        f"${last_3_months:,.0f}",
+                        delta=f"{(forecast_df['Cash_Flow'].sum() / last_3_months - 1) * 100:.1f}%" if last_3_months != 0 else None
+                    )
+            else:
+                st.info("Insufficient historical data for cash flow projection. Need at least 6 months of data.")
+        else:
+            st.info("Cash flow projection data not available.")
+    
+    # Tab 4: Accounts Receivable
+    with tab4:
+        st.subheader("Accounts Receivable Analysis")
         
         # AR Aging Analysis
         st.markdown("### AR Aging Analysis")
@@ -804,6 +1178,15 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             ar_trend = filtered_financial.groupby('Month_Year')[ar_columns + ['DSO']].sum().reset_index()
             ar_trend = ar_trend.sort_values('Month_Year')
             
+            # Calculate claims trend data
+            claims_trend = filtered_financial.groupby('Month_Year').agg({
+                'Total_Claims_Submitted': 'sum',
+                'Claims_Denied': 'sum'
+            }).reset_index()
+            
+            # Calculate denial rate
+            claims_trend['Denial_Rate'] = (claims_trend['Claims_Denied'] / claims_trend['Total_Claims_Submitted'] * 100).fillna(0)
+            
             # Create stacked area chart
             fig = go.Figure()
             
@@ -849,160 +1232,13 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 y=ar_trend['DSO'],
                 name='DSO (Days)',
                 mode='lines+markers',
-                line=dict(color='black', width=2),
+                line=dict(color='#0066cc', width=2),
                 yaxis='y2'
             ))
             
             # Update layout
             fig.update_layout(
                 title="AR Aging and DSO Trends",
-                xaxis_title="Month",
-                yaxis=dict(
-                    title="AR Amount ($)",
-                    tickprefix="$"
-                ),
-                yaxis2=dict(
-                    title="DSO (Days)",
-                    overlaying='y',
-                    side='right'
-                ),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("AR aging data not available.")
-        
-        # Collections Analysis
-        st.markdown("### Collections Performance")
-        
-        # Collection-related columns
-        collection_cols = ['Collections_Expected', 'Collections_Actual', 'Collection_Rate']
-        
-        if all(col in filtered_financial.columns for col in collection_cols):
-            # Group by month for collection trend
-            collection_trend = filtered_financial.groupby('Month_Year')[collection_cols].agg({
-                'Collections_Expected': 'sum',
-                'Collections_Actual': 'sum',
-                'Collection_Rate': 'mean'
-            }).reset_index()
-            collection_trend = collection_trend.sort_values('Month_Year')
-            
-            # Create bar chart with collection rate overlay
-            fig = go.Figure()
-            
-            fig.add_trace(go.Bar(
-                x=collection_trend['Month_Year'],
-                y=collection_trend['Collections_Expected'],
-                name='Expected Collections',
-                marker_color='rgba(200, 200, 200, 0.7)'
-            ))
-            
-            fig.add_trace(go.Bar(
-                x=collection_trend['Month_Year'],
-                y=collection_trend['Collections_Actual'],
-                name='Actual Collections',
-                marker_color='rgba(0, 123, 255, 0.7)'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=collection_trend['Month_Year'],
-                y=collection_trend['Collection_Rate'],
-                name='Collection Rate (%)',
-                mode='lines+markers',
-                line=dict(color='red', width=2),
-                yaxis='y2'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title="Collections Performance",
-                xaxis_title="Month",
-                yaxis=dict(
-                    title="Collections Amount ($)",
-                    tickprefix="$"
-                ),
-                yaxis2=dict(
-                    title="Collection Rate (%)",
-                    overlaying='y',
-                    side='right',
-                    range=[0, 100]
-                ),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                ),
-                barmode='group'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Collections data not available.")
-        
-        # Insurance Claims Analysis
-        st.markdown("### Insurance Claims Analysis")
-        
-        # Insurance-related columns
-        insurance_cols = ['Total_Claims_Submitted', 'Claims_Outstanding', 'Claims_Denied', 'Avg_Days_To_Payment']
-        
-        if all(col in filtered_financial.columns for col in insurance_cols):
-            # Group by month for insurance claims trend
-            claims_trend = filtered_financial.groupby('Month_Year')[insurance_cols].agg({
-                'Total_Claims_Submitted': 'sum',
-                'Claims_Outstanding': 'sum',
-                'Claims_Denied': 'sum',
-                'Avg_Days_To_Payment': 'mean'
-            }).reset_index()
-            claims_trend = claims_trend.sort_values('Month_Year')
-            
-            # Calculate denial rate
-            claims_trend['Denial_Rate'] = (claims_trend['Claims_Denied'] / claims_trend['Total_Claims_Submitted'] * 100).fillna(0)
-            
-            # Create bar chart with days to payment overlay
-            fig = go.Figure()
-            
-            fig.add_trace(go.Bar(
-                x=claims_trend['Month_Year'],
-                y=claims_trend['Total_Claims_Submitted'],
-                name='Claims Submitted',
-                marker_color='rgba(200, 200, 200, 0.7)'
-            ))
-            
-            fig.add_trace(go.Bar(
-                x=claims_trend['Month_Year'],
-                y=claims_trend['Claims_Outstanding'],
-                name='Claims Outstanding',
-                marker_color='rgba(255, 165, 0, 0.7)'
-            ))
-            
-            fig.add_trace(go.Bar(
-                x=claims_trend['Month_Year'],
-                y=claims_trend['Claims_Denied'],
-                name='Claims Denied',
-                marker_color='rgba(255, 0, 0, 0.7)'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=claims_trend['Month_Year'],
-                y=claims_trend['Avg_Days_To_Payment'],
-                name='Avg Days to Payment',
-                mode='lines+markers',
-                line=dict(color='black', width=2),
-                yaxis='y2'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title="Insurance Claims Processing",
                 xaxis_title="Month",
                 yaxis=dict(
                     title="Number of Claims"
@@ -1029,7 +1265,7 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 claims_trend,
                 x='Month_Year',
                 y='Denial_Rate',
-                title="Insurance Claim Denial Rate Trend",
+                title="Insurance Claims Denial Rate Trend",
                 labels={
                     'Month_Year': 'Month',
                     'Denial_Rate': 'Denial Rate (%)'
@@ -1044,7 +1280,7 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 y0=5,
                 x1=claims_trend['Month_Year'].max(),
                 y1=5,
-                line=dict(color="red", width=2, dash="dash"),
+                line=dict(color="red", width=2, dash="dash")
             )
             
             # Update layout
@@ -1102,267 +1338,205 @@ if all([financial_data is not None, operations_data is not None, patient_data is
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Create a bar chart of collection rate by payor if available
-            if 'Collection_Rate' in filtered_financial.columns:
-                # Get collection rate by payor
-                # This would need a join with patient data or a way to associate payor with collection rate
-                st.info("Collection rate by payor analysis would require additional data linkage.")
+            # Collection Rate by Payor Analysis
+            if 'Collection_Rate' in filtered_financial.columns and patient_data is not None:
+                st.markdown("### Collection Rate by Payor")
+                
+                # Filter patient data for the same date range and location
+                filtered_patient_data = patient_data[
+                    (patient_data['Date_of_Service'].dt.date >= start_date) & 
+                    (patient_data['Date_of_Service'].dt.date <= end_date)
+                ]
+                
+                if selected_location != 'All':
+                    filtered_patient_data = filtered_patient_data[filtered_patient_data['Location_Name'] == selected_location]
+                
+                # Group by insurance provider and calculate collection rate
+                payor_collection = filtered_patient_data.groupby('Insurance_Provider').agg({
+                    'Charged_Amount': 'sum',
+                    'Amount_Paid': 'sum'
+                }).reset_index()
+                
+                # Calculate collection rate for each payor
+                payor_collection['Collection_Rate'] = (payor_collection['Amount_Paid'] / 
+                                                    payor_collection['Charged_Amount'] * 100).fillna(0)
+                
+                # Sort by collection rate
+                payor_collection = payor_collection.sort_values('Collection_Rate', ascending=False)
+                
+                # Create bar chart
+                fig = px.bar(
+                    payor_collection,
+                    x='Insurance_Provider',
+                    y='Collection_Rate',
+                    title="Collection Rate by Insurance Provider",
+                    labels={
+                        'Insurance_Provider': 'Insurance Provider',
+                        'Collection_Rate': 'Collection Rate (%)'
+                    },
+                    color='Collection_Rate',
+                    color_continuous_scale=px.colors.sequential.Blues
+                )
+                
+                # Add a target line for benchmark collection rate (e.g., 95%)
+                fig.add_shape(
+                    type="line",
+                    x0=-0.5,
+                    y0=95,
+                    x1=len(payor_collection) - 0.5,
+                    y1=95,
+                    line=dict(color="red", width=2, dash="dash")
+                )
+                
+                # Update layout
+                fig.update_layout(
+                    xaxis_title="Insurance Provider",
+                    yaxis=dict(
+                        title="Collection Rate (%)",
+                        ticksuffix="%"
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Also show as a table with more details
+                st.subheader("Collection Details by Payor")
+                
+                # Add more metrics to the table
+                payor_collection['Charged_Amount'] = payor_collection['Charged_Amount'].map('${:,.2f}'.format)
+                payor_collection['Amount_Paid'] = payor_collection['Amount_Paid'].map('${:,.2f}'.format)
+                payor_collection['Collection_Rate'] = payor_collection['Collection_Rate'].map('{:.1f}%'.format)
+                
+                # Rename columns for display
+                payor_collection = payor_collection.rename(columns={
+                    'Insurance_Provider': 'Payor',
+                    'Charged_Amount': 'Amount Billed',
+                    'Amount_Paid': 'Amount Collected',
+                    'Collection_Rate': 'Collection Rate'
+                })
+                
+                st.dataframe(payor_collection)
+            else:
+                st.info("Patient data not available for collection rate analysis.")
         else:
             st.info("Payor mix data not available.")
     
-    # Tab 4: Financial KPIs
-    with tab4:
-        st.subheader("Financial Key Performance Indicators")
+    # Tab 5: Key Performance Metrics
+    with tab5:
+        st.subheader("")
         
         # KPI Trends
-        st.markdown("### KPI Trends")
+        st.markdown("### Financial KPI Trends")
         
-        # Revenue per patient/visit/chair
-        revenue_kpi_cols = ['Revenue_Per_Patient', 'Revenue_Per_Chair', 'Revenue_Per_Hour']
+        # Calculate financial KPIs
+        if 'EBITDA_Margin' not in filtered_financial.columns:
+            filtered_financial['EBITDA_Margin'] = (filtered_financial['EBITDA'] / filtered_financial['Total_Revenue'] * 100)
         
-        if any(col in filtered_financial.columns for col in revenue_kpi_cols):
-            available_kpis = [col for col in revenue_kpi_cols if col in filtered_financial.columns]
-            
-            # Group by month
-            kpi_trends = filtered_financial.groupby('Month_Year')[available_kpis].mean().reset_index()
-            kpi_trends = kpi_trends.sort_values('Month_Year')
-            
-            # Create multi-line chart
-            fig = go.Figure()
-            
-            for col in available_kpis:
-                fig.add_trace(go.Scatter(
-                    x=kpi_trends['Month_Year'],
-                    y=kpi_trends[col],
-                    mode='lines+markers',
-                    name=col.replace('_', ' ')
-                ))
-            
-            # Update layout
-            fig.update_layout(
-                title="Revenue KPI Trends",
-                xaxis_title="Month",
-                yaxis=dict(
-                    title="Amount ($)",
-                    tickprefix="$"
-                ),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
+        if 'Operating_Margin' not in filtered_financial.columns:
+            filtered_financial['Operating_Margin'] = ((filtered_financial['Total_Revenue'] - filtered_financial['Total_Expenses']) / filtered_financial['Total_Revenue'] * 100)
+        
+        # Group by month and calculate averages
+        kpi_trends = filtered_financial.groupby('Month_Year').agg({
+            'EBITDA_Margin': 'mean',
+            'Operating_Margin': 'mean',
+            'Collection_Rate': 'mean',
+            'DSO': 'mean'
+        }).reset_index()
+        
+        # Create four columns for metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            latest_ebitda_margin = kpi_trends['EBITDA_Margin'].iloc[-1]
+            st.metric(
+                "Latest EBITDA Margin",
+                f"{latest_ebitda_margin:.1f}%",
+                f"{((latest_ebitda_margin - kpi_trends['EBITDA_Margin'].iloc[-2]) / kpi_trends['EBITDA_Margin'].iloc[-2] * 100):.1f}%"
             )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Revenue KPI data not available.")
         
-        # Operational KPIs
-        operational_kpi_cols = ['Chair_Utilization', 'Patient_Retention_Rate', 'Case_Acceptance_Rate', 'Treatment_Completion_Rate']
-        
-        if any(col in filtered_financial.columns for col in operational_kpi_cols):
-            available_kpis = [col for col in operational_kpi_cols if col in filtered_financial.columns]
-            
-            # Group by month
-            op_kpi_trends = filtered_financial.groupby('Month_Year')[available_kpis].mean().reset_index()
-            op_kpi_trends = op_kpi_trends.sort_values('Month_Year')
-            
-            # Create multi-line chart
-            fig = go.Figure()
-            
-            for col in available_kpis:
-                fig.add_trace(go.Scatter(
-                    x=op_kpi_trends['Month_Year'],
-                    y=op_kpi_trends[col],
-                    mode='lines+markers',
-                    name=col.replace('_', ' ')
-                ))
-            
-            # Update layout
-            fig.update_layout(
-                title="Operational KPI Trends",
-                xaxis_title="Month",
-                yaxis=dict(
-                    title="Percentage (%)",
-                    ticksuffix="%"
-                ),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
+        with col2:
+            latest_operating_margin = kpi_trends['Operating_Margin'].iloc[-1]
+            st.metric(
+                "Latest Operating Margin",
+                f"{latest_operating_margin:.1f}%",
+                f"{((latest_operating_margin - kpi_trends['Operating_Margin'].iloc[-2]) / kpi_trends['Operating_Margin'].iloc[-2] * 100):.1f}%"
             )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Operational KPI data not available.")
         
-        # KPI Benchmark Comparisons
-        st.markdown("### KPI Benchmarks")
-        
-        # Define some industry benchmarks (these would typically come from industry research)
-        benchmarks = {
-            'Labor_Cost_Percentage': 27.0,
-            'Supply_Cost_Percentage': 6.0,
-            'EBITDA_Margin': 18.0,
-            'Collection_Rate': 98.0,
-            'DSO': 35.0,
-            'Chair_Utilization': 85.0
-        }
-        
-        # Get the most recent month's data for KPIs
-        latest_month = filtered_financial['Month_Year'].max()
-        latest_kpis = filtered_financial[filtered_financial['Month_Year'] == latest_month]
-        
-        # Calculate actual KPI values
-        actual_kpis = {}
-        for kpi in benchmarks.keys():
-            if kpi in latest_kpis.columns:
-                actual_kpis[kpi] = latest_kpis[kpi].mean()
-        
-        if actual_kpis:
-            # Create DataFrame for plotting
-            benchmark_df = pd.DataFrame({
-                'KPI': list(actual_kpis.keys()),
-                'Actual': list(actual_kpis.values()),
-                'Benchmark': [benchmarks[kpi] for kpi in actual_kpis.keys()]
-            })
-            
-            # Calculate percentage of benchmark achieved
-            benchmark_df['Percentage'] = (benchmark_df['Actual'] / benchmark_df['Benchmark'] * 100)
-            
-            # Determine if higher or lower is better
-            better_lower = ['Labor_Cost_Percentage', 'Supply_Cost_Percentage', 'DSO']
-            benchmark_df['Better'] = benchmark_df['KPI'].apply(lambda x: 'Lower' if x in better_lower else 'Higher')
-            
-            # Create horizontal bar chart
-            fig = go.Figure()
-            
-            fig.add_trace(go.Bar(
-                y=benchmark_df['KPI'],
-                x=benchmark_df['Actual'],
-                name='Actual',
-                orientation='h',
-                marker_color=['red' if row['Better'] == 'Lower' and row['Actual'] > row['Benchmark'] or 
-                            row['Better'] == 'Higher' and row['Actual'] < row['Benchmark'] else 'green' 
-                            for i, row in benchmark_df.iterrows()]
-            ))
-            
-            fig.add_trace(go.Bar(
-                y=benchmark_df['KPI'],
-                x=benchmark_df['Benchmark'],
-                name='Benchmark',
-                orientation='h',
-                marker_color='rgba(200, 200, 200, 0.7)'
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                title="KPI Performance vs. Benchmarks",
-                xaxis_title="Value",
-                yaxis_title="KPI",
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                ),
-                barmode='group'
+        with col3:
+            latest_collection_rate = kpi_trends['Collection_Rate'].iloc[-1]
+            st.metric(
+                "Latest Collection Rate",
+                f"{latest_collection_rate:.1f}%",
+                f"{((latest_collection_rate - kpi_trends['Collection_Rate'].iloc[-2]) / kpi_trends['Collection_Rate'].iloc[-2] * 100):.1f}%"
             )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Create a table of KPI performance
-            benchmark_df['Status'] = benchmark_df.apply(
-                lambda x: 'Good' if (x['Better'] == 'Lower' and x['Actual'] <= x['Benchmark']) or 
-                                   (x['Better'] == 'Higher' and x['Actual'] >= x['Benchmark']) else 'Needs Improvement',
-                axis=1
-            )
-            
-            # Format for display
-            display_df = benchmark_df.copy()
-            display_df['Actual'] = display_df.apply(
-                lambda x: f"{x['Actual']:.1f}%" if 'Percentage' in x['KPI'] or x['KPI'] in ['Collection_Rate', 'Chair_Utilization', 'EBITDA_Margin'] 
-                                                else f"{x['Actual']:.1f}",
-                axis=1
-            )
-            display_df['Benchmark'] = display_df.apply(
-                lambda x: f"{x['Benchmark']:.1f}%" if 'Percentage' in x['KPI'] or x['KPI'] in ['Collection_Rate', 'Chair_Utilization', 'EBITDA_Margin'] 
-                                                  else f"{x['Benchmark']:.1f}",
-                axis=1
-            )
-            
-            # Create a better display of KPI names
-            display_df['KPI'] = display_df['KPI'].apply(lambda x: x.replace('_', ' ').title())
-            
-            # Reorder columns
-            display_df = display_df[['KPI', 'Actual', 'Benchmark', 'Better', 'Status']]
-            
-            st.dataframe(display_df, use_container_width=True)
-        else:
-            st.info("KPI benchmark data not available.")
         
-        # KPI by Location
-        if selected_location == 'All':
-            st.markdown("### KPI by Location")
-            
-            # Select KPIs to display
-            kpis_to_display = ['Revenue_Per_Patient', 'Revenue_Per_Chair', 'EBITDA_Margin', 'Collection_Rate', 'Chair_Utilization']
-            available_kpis = [kpi for kpi in kpis_to_display if kpi in filtered_financial.columns]
-            
-            if available_kpis:
-                # Group by location
-                location_kpis = filtered_financial.groupby('Location_Name')[available_kpis].mean().reset_index()
-                
-                # Create radar chart for each location
-                for i, location in enumerate(location_kpis['Location_Name']):
-                    if i % 3 == 0:
-                        # Create a new row of columns every three locations
-                        cols = st.columns(3)
-                    
-                    with cols[i % 3]:
-                        # Get KPI values for this location
-                        location_data = location_kpis[location_kpis['Location_Name'] == location]
-                        
-                        # Prepare data for radar chart
-                        categories = [kpi.replace('_', ' ') for kpi in available_kpis]
-                        values = [location_data[kpi].values[0] for kpi in available_kpis]
-                        
-                        # Normalize values for better radar chart display
-                        # Placeholder for actual normalization logic
-                        
-                        # Create radar chart
-                        fig = go.Figure()
-                        
-                        fig.add_trace(go.Scatterpolar(
-                            r=values,
-                            theta=categories,
-                            fill='toself',
-                            name=location
-                        ))
-                        
-                        fig.update_layout(
-                            polar=dict(
-                                radialaxis=dict(
-                                    visible=True,
-                                    range=[0, max(values) * 1.2]
-                                )
-                            ),
-                            title=location
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("KPI data by location not available.")
+        with col4:
+            latest_dso = kpi_trends['DSO'].iloc[-1]
+            st.metric(
+                "Latest DSO",
+                f"{latest_dso:.1f} days",
+                f"{((latest_dso - kpi_trends['DSO'].iloc[-2]) / kpi_trends['DSO'].iloc[-2] * 100):.1f}%"
+            )
+        
+        # Create multi-line chart for trends
+        fig = go.Figure()
+        
+        # Add traces for each KPI
+        fig.add_trace(go.Scatter(
+            x=kpi_trends['Month_Year'],
+            y=kpi_trends['EBITDA_Margin'],
+            mode='lines+markers',
+            name='EBITDA Margin',
+            line=dict(color='#1f77b4', width=2)
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=kpi_trends['Month_Year'],
+            y=kpi_trends['Operating_Margin'],
+            mode='lines+markers',
+            name='Operating Margin',
+            line=dict(color='#2ca02c', width=2)
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=kpi_trends['Month_Year'],
+            y=kpi_trends['Collection_Rate'],
+            mode='lines+markers',
+            name='Collection Rate',
+            line=dict(color='#ff7f0e', width=2)
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=kpi_trends['Month_Year'],
+            y=kpi_trends['DSO'],
+            mode='lines+markers',
+            name='DSO',
+            line=dict(color='#d62728', width=2)
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title="Financial KPI Trends Over Time",
+            xaxis_title="Month",
+            yaxis_title="Percentage (%)",
+            yaxis=dict(
+                ticksuffix="%"
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Tab 5: Financial Forecasting
-    with tab5:
-        st.subheader("Financial Forecasting")
+    # Tab 6: Trends & Forecasting
+    with tab6:
+        st.subheader("Trends & Forecasting")
         
         # Revenue Forecasting
         st.markdown("### Revenue Forecast")
@@ -1607,7 +1781,7 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                     barmode='group'
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="tab3_cash_flow_projection_1")
                 
                 # Display cash flow metrics
                 col1, col2, col3 = st.columns(3)
@@ -1659,12 +1833,19 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 min_value=-20.0, 
                 max_value=20.0, 
                 value=0.0, 
-                step=1.0,
+                step=0.5,
                 format="%.1f%%"
             )
             
             # If we have service line data, allow adjusting the mix
-            service_columns = [col for col in filtered_financial.columns if col.startswith('Revenue_') and col != 'Revenue_MoM_Change' and col != 'Revenue_YoY_Change' and col != 'Revenue_Per_Square_Foot' and col != 'Revenue_Per_Patient']
+            service_columns = [
+                col for col in filtered_financial.columns 
+                if col.startswith('Revenue_') and 
+                col != 'Revenue_MoM_Change' and 
+                col != 'Revenue_YoY_Change' and 
+                col != 'Revenue_Per_Square_Foot' and 
+                col != 'Revenue_Per_Patient'
+            ]
             
             if service_columns:
                 st.subheader("Service Mix Adjustments")
@@ -1677,11 +1858,13 @@ if all([financial_data is not None, operations_data is not None, patient_data is
                 service_mix_changes = {}
                 for col in service_columns:
                     service_name = col.replace('Revenue_', '').replace('_', ' ')
-                    default_pct = service_percentages[col]
+                    default_pct = round(service_percentages[col] / 0.5) * 0.5  # Round to nearest 0.5
+                    min_val = max(0.0, round((default_pct - 10.0) / 0.5) * 0.5)  # Round down to nearest 0.5
+                    max_val = min(100.0, round((default_pct + 10.0) / 0.5) * 0.5)  # Round up to nearest 0.5
                     service_mix_changes[col] = st.slider(
                         f"{service_name} Mix (%)", 
-                        min_value=max(0.0, default_pct - 10.0), 
-                        max_value=min(100.0, default_pct + 10.0), 
+                        min_value=min_val,
+                        max_value=max_val,
                         value=default_pct,
                         step=0.5,
                         format="%.1f%%"
@@ -1828,6 +2011,99 @@ if all([financial_data is not None, operations_data is not None, patient_data is
         )
         
         st.plotly_chart(fig, use_container_width=True)
+    
+    # Tab 7: Procedure Profitability Analysis
+    with tab7:
+        st.header("Procedure Profitability Analysis")
+        
+        # Calculate procedure revenue metrics
+        procedure_revenue = pd.DataFrame({
+            'Procedure': ['Diagnostic', 'Preventive', 'Restorative', 'Endodontic', 
+                         'Periodontic', 'Prosthodontic', 'Oral Surgery', 'Orthodontic',
+                         'Implant', 'Adjunctive'],
+            'Billed_Revenue': [
+                filtered_financial['Revenue_Diagnostic'].sum(),
+                filtered_financial['Revenue_Preventive'].sum(),
+                filtered_financial['Revenue_Restorative'].sum(),
+                filtered_financial['Revenue_Endodontic'].sum(),
+                filtered_financial['Revenue_Periodontic'].sum(),
+                filtered_financial['Revenue_Prosthodontic'].sum(),
+                filtered_financial['Revenue_Oral_Surgery'].sum(),
+                filtered_financial['Revenue_Orthodontic'].sum(),
+                filtered_financial['Revenue_Implant'].sum(),
+                filtered_financial['Revenue_Adjunctive'].sum()
+            ]
+        })
+        
+        # Calculate collected revenue (using collection rate)
+        procedure_revenue['Collected_Revenue'] = procedure_revenue['Billed_Revenue'] * filtered_financial['Collection_Rate'].mean()
+        procedure_revenue['Profitability'] = procedure_revenue['Collected_Revenue'] - procedure_revenue['Billed_Revenue']
+        
+        # Create visualization
+        fig = go.Figure()
+        
+        # Add billed revenue bars
+        fig.add_trace(go.Bar(
+            name='Billed Revenue',
+            x=procedure_revenue['Procedure'],
+            y=procedure_revenue['Billed_Revenue'],
+            marker_color='rgb(55, 83, 109)'
+        ))
+        
+        # Add collected revenue bars
+        fig.add_trace(go.Bar(
+            name='Collected Revenue',
+            x=procedure_revenue['Procedure'],
+            y=procedure_revenue['Collected_Revenue'],
+            marker_color='rgb(26, 118, 255)'
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title='Procedure Revenue Analysis',
+            xaxis_title='Procedure Type',
+            yaxis_title='Revenue ($)',
+            barmode='group',
+            height=600,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        
+        st.plotly_chart(fig, use_container_width=True, key="tab7_procedure_revenue_1")
+        
+        # Display profitability metrics
+        st.subheader("Top 3 Most Profitable Procedures")
+        top_profitable = procedure_revenue.nlargest(3, 'Collected_Revenue')
+        
+        # Create three columns for horizontal layout
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                top_profitable.iloc[0]['Procedure'],
+                f"${top_profitable.iloc[0]['Collected_Revenue']:,.2f}",
+                f"${top_profitable.iloc[0]['Billed_Revenue']:,.2f} billed"
+            )
+        
+        with col2:
+            st.metric(
+                top_profitable.iloc[1]['Procedure'],
+                f"${top_profitable.iloc[1]['Collected_Revenue']:,.2f}",
+                f"${top_profitable.iloc[1]['Billed_Revenue']:,.2f} billed"
+            )
+        
+        with col3:
+            st.metric(
+                top_profitable.iloc[2]['Procedure'],
+                f"${top_profitable.iloc[2]['Collected_Revenue']:,.2f}",
+                f"${top_profitable.iloc[2]['Billed_Revenue']:,.2f} billed"
+            )
     
     # Footer with download options
     st.subheader("Data Download")
