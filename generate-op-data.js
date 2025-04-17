@@ -1,8 +1,9 @@
 // Dental Clinic Operations Dataset Generator for CFO Analytics
 // This script creates a realistic dataset of dental clinic operations metrics
-// Includes staff hours, equipment usage, appointment metrics, and benchmarking data
+// Integrates with existing appointment data to ensure consistency
 
 const fs = require('fs');
+// Using built-in modules instead of csv-parser
 
 // Helper function to generate random numbers within a range
 function randomBetween(min, max) {
@@ -24,7 +25,6 @@ function formatDate(date) {
 // Constants for the dataset
 const START_DATE = new Date(2020, 0, 1); // Jan 1, 2020
 const END_DATE = new Date(2025, 3, 1);   // Apr 1, 2025
-const NUM_DAYS_TO_GENERATE = 5754;        // Number of daily operation records to generate
 
 // Create location data (matching the patient/appointment dataset)
 const locations = [
@@ -69,6 +69,20 @@ const locations = [
     target_collection_rate: 0.88,
     target_new_patients: 20,
     target_cancellation_rate: 0.07
+  },
+  {
+    id: 'LOC004',
+    name: 'North Portland Family Dental',
+    address: '234 Market St, Portland, OR 97217',
+    opened_date: '2018-08-05',
+    chairs: 4,
+    operatingHours: 9, // 8am - 5pm
+    avgPatientsPerChairPerDay: 7,
+    staffCount: { dentist: 2, hygienist: 3, assistant: 4, admin: 2 },
+    target_chair_utilization: 0.83,
+    target_collection_rate: 0.91,
+    target_new_patients: 25,
+    target_cancellation_rate: 0.06
   }
 ];
 
@@ -116,23 +130,35 @@ const staffMembers = [
   { id: 'ADM004', name: 'Matthew Miller', role: 'Admin', primary_location: 'LOC002', specialty: 'Reception', hourly_rate: 23, full_time: true },
   { id: 'ADM005', name: 'Emma Smith', role: 'Admin', primary_location: 'LOC002', specialty: 'Office Manager', hourly_rate: 30, full_time: true },
   { id: 'ADM006', name: 'Brandon Wilson', role: 'Admin', primary_location: 'LOC003', specialty: 'Reception', hourly_rate: 22, full_time: true },
-  { id: 'ADM007', name: 'Sophia Garcia', role: 'Admin', primary_location: 'LOC003', specialty: 'Office Manager', hourly_rate: 29, full_time: true }
+  { id: 'ADM007', name: 'Sophia Garcia', role: 'Admin', primary_location: 'LOC003', specialty: 'Office Manager', hourly_rate: 29, full_time: true },
+
+  // New staff for LOC004
+  { id: 'DR008', name: 'Dr. Natalie Wong', role: 'Dentist', primary_location: 'LOC004', specialty: 'General', hourly_rate: 155, full_time: true },
+  { id: 'DR009', name: 'Dr. Marcus Jackson', role: 'Dentist', primary_location: 'LOC004', specialty: 'Pediatric', hourly_rate: 160, full_time: false },
+  { id: 'HYG010', name: 'Benjamin Carter', role: 'Hygienist', primary_location: 'LOC004', specialty: 'Hygiene', hourly_rate: 58, full_time: true },
+  { id: 'HYG011', name: 'Amelia Zhang', role: 'Hygienist', primary_location: 'LOC004', specialty: 'Hygiene', hourly_rate: 55, full_time: true },
+  { id: 'ASST014', name: 'Tyler Robinson', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 26, full_time: true },
+  { id: 'ASST015', name: 'Alexandra Singh', role: 'Assistant', primary_location: 'LOC004', specialty: 'Pediatric', hourly_rate: 27, full_time: true },
+  { id: 'ASST016', name: 'Caleb Washington', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 25, full_time: true },
+  { id: 'ASST017', name: 'Hannah Patel', role: 'Assistant', primary_location: 'LOC004', specialty: 'General', hourly_rate: 24, full_time: false },
+  { id: 'ADM008', name: 'Noah Reynolds', role: 'Admin', primary_location: 'LOC004', specialty: 'Reception', hourly_rate: 23, full_time: true },
+  { id: 'ADM009', name: 'Isabella Ramirez', role: 'Admin', primary_location: 'LOC004', specialty: 'Billing', hourly_rate: 26, full_time: true }
 ];
 
 // Equipment data
 const equipment = [
-  { id: 'EQ001', name: 'Digital X-Ray Machine', type: 'Imaging', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 15, avg_daily_uses: 12, maintenance_interval_days: 90 },
-  { id: 'EQ002', name: 'Panoramic X-Ray', type: 'Imaging', locations: ['LOC001', 'LOC002'], avg_usage_time: 20, avg_daily_uses: 6, maintenance_interval_days: 120 },
+  { id: 'EQ001', name: 'Digital X-Ray Machine', type: 'Imaging', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 15, avg_daily_uses: 12, maintenance_interval_days: 90 },
+  { id: 'EQ002', name: 'Panoramic X-Ray', type: 'Imaging', locations: ['LOC001', 'LOC002', 'LOC004'], avg_usage_time: 20, avg_daily_uses: 6, maintenance_interval_days: 120 },
   { id: 'EQ003', name: 'CBCT Scanner', type: 'Imaging', locations: ['LOC001'], avg_usage_time: 30, avg_daily_uses: 3, maintenance_interval_days: 180 },
-  { id: 'EQ004', name: 'Dental Chair 1', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
-  { id: 'EQ005', name: 'Dental Chair 2', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
-  { id: 'EQ006', name: 'Dental Chair 3', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
-  { id: 'EQ007', name: 'Dental Chair 4', type: 'Treatment', locations: ['LOC001', 'LOC002'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
+  { id: 'EQ004', name: 'Dental Chair 1', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
+  { id: 'EQ005', name: 'Dental Chair 2', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
+  { id: 'EQ006', name: 'Dental Chair 3', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
+  { id: 'EQ007', name: 'Dental Chair 4', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC004'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
   { id: 'EQ008', name: 'Dental Chair 5', type: 'Treatment', locations: ['LOC001'], avg_usage_time: 45, avg_daily_uses: 10, maintenance_interval_days: 60 },
   { id: 'EQ009', name: 'CAD/CAM System', type: 'Restoration', locations: ['LOC001'], avg_usage_time: 60, avg_daily_uses: 2, maintenance_interval_days: 90 },
-  { id: 'EQ010', name: 'Sterilization Unit', type: 'Sterilization', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 30, avg_daily_uses: 15, maintenance_interval_days: 30 },
-  { id: 'EQ011', name: 'Dental Laser', type: 'Treatment', locations: ['LOC001', 'LOC002'], avg_usage_time: 25, avg_daily_uses: 4, maintenance_interval_days: 60 },
-  { id: 'EQ012', name: 'Intraoral Scanner', type: 'Imaging', locations: ['LOC001', 'LOC002', 'LOC003'], avg_usage_time: 20, avg_daily_uses: 5, maintenance_interval_days: 45 }
+  { id: 'EQ010', name: 'Sterilization Unit', type: 'Sterilization', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 30, avg_daily_uses: 15, maintenance_interval_days: 30 },
+  { id: 'EQ011', name: 'Dental Laser', type: 'Treatment', locations: ['LOC001', 'LOC002', 'LOC004'], avg_usage_time: 25, avg_daily_uses: 4, maintenance_interval_days: 60 },
+  { id: 'EQ012', name: 'Intraoral Scanner', type: 'Imaging', locations: ['LOC001', 'LOC002', 'LOC003', 'LOC004'], avg_usage_time: 20, avg_daily_uses: 5, maintenance_interval_days: 45 }
 ];
 
 // Generate holidays and special dates (to account for lower volume)
@@ -151,7 +177,7 @@ const holidays = [
   '2025-01-01', '2025-01-20', '2025-02-17', '2025-05-26', '2025-07-04'
 ];
 
-// Seasonal factors (busier seasons, slower seasons)
+// Function to get seasonal factors (busier seasons, slower seasons)
 function getSeasonalFactor(date) {
   const month = date.getMonth();
   
@@ -174,7 +200,7 @@ function getSeasonalFactor(date) {
   return randomFloatBetween(0.95, 1.05);
 }
 
-// Day of week factors (busier on certain days)
+// Function to calculate day of week factors (busier on certain days)
 function getDayOfWeekFactor(date) {
   const day = date.getDay();
   
@@ -207,7 +233,7 @@ function getDayOfWeekFactor(date) {
   return randomFloatBetween(0.4, 0.6);
 }
 
-// Account for practice growth over time
+// Function to calculate growth factor over time
 function getGrowthFactor(date) {
   // Start with baseline
   let baseGrowth = 1.0;
@@ -221,8 +247,128 @@ function getGrowthFactor(date) {
   return baseGrowth;
 }
 
+// READ APPOINTMENT DATA AND PROCESS IT
+// This function reads the appointment data from the CSV file and organizes it for easy lookup
+function readAppointmentData() {
+  return new Promise((resolve, reject) => {
+    fs.readFile('Pat_App_Data.csv', 'utf8', (err, data) => {
+      if (err) {
+        console.error('Error reading appointment data file:', err);
+        reject(err);
+        return;
+      }
+      
+      const appointmentsByDateLocation = {};
+      
+      // Parse CSV manually
+      const rows = data.split('\n');
+      const headers = rows[0].split(',').map(header => 
+        header.replace(/^"|"$/g, '') // Remove quotes from headers
+      );
+      
+      // Process each row starting from index 1 (skipping headers)
+      for (let i = 1; i < rows.length; i++) {
+        if (!rows[i].trim()) continue; // Skip empty rows
+        
+        // Split by comma, but respect quoted values
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let char of rows[i]) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(current);
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current); // Add the last value
+        
+        // Create a row object with header->value mapping
+        const row = {};
+        headers.forEach((header, index) => {
+          if (index < values.length) {
+            row[header] = values[index].replace(/^"|"$/g, ''); // Remove quotes
+          } else {
+            row[header] = '';
+          }
+        });
+        
+        // Extract key data
+        const date = row.Date_of_Service;
+        const locationId = row.Location_ID;
+        const status = row.Appointment_Status;
+        const duration = parseInt(row.Procedure_Duration) || 0;
+        
+        // Initialize structure if first time seeing this date/location
+        if (!appointmentsByDateLocation[date]) {
+          appointmentsByDateLocation[date] = {};
+        }
+        
+        if (!appointmentsByDateLocation[date][locationId]) {
+          appointmentsByDateLocation[date][locationId] = {
+            total: 0,
+            completed: 0,
+            canceled: 0,
+            noShow: 0,
+            rescheduled: 0,
+            totalDuration: 0,
+            newPatients: 0,
+            procedures: [],
+            chargedAmount: 0,
+            insuranceCovered: 0,
+            patientResponsibility: 0,
+            amountPaid: 0
+          };
+        }
+        
+        // Update counters based on appointment status
+        appointmentsByDateLocation[date][locationId].total++;
+        
+        if (status === 'Completed') {
+          appointmentsByDateLocation[date][locationId].completed++;
+          appointmentsByDateLocation[date][locationId].totalDuration += duration;
+          
+          // Track financial data for completed appointments
+          appointmentsByDateLocation[date][locationId].chargedAmount += parseInt(row.Charged_Amount) || 0;
+          appointmentsByDateLocation[date][locationId].insuranceCovered += parseInt(row.Insurance_Covered_Amount) || 0;
+          appointmentsByDateLocation[date][locationId].patientResponsibility += parseInt(row.Patient_Responsibility) || 0;
+          appointmentsByDateLocation[date][locationId].amountPaid += parseInt(row.Amount_Paid) || 0;
+          
+          // Track procedure details
+          if (row.Procedure_Code) {
+            appointmentsByDateLocation[date][locationId].procedures.push({
+              code: row.Procedure_Code,
+              description: row.Procedure_Description,
+              category: row.Procedure_Category,
+              duration: duration
+            });
+          }
+        } else if (status === 'Canceled') {
+          appointmentsByDateLocation[date][locationId].canceled++;
+        } else if (status === 'No-Show') {
+          appointmentsByDateLocation[date][locationId].noShow++;
+        } else if (status === 'Rescheduled') {
+          appointmentsByDateLocation[date][locationId].rescheduled++;
+        }
+        
+        // Track new patients
+        if (row.Is_New_Patient === 'true') {
+          appointmentsByDateLocation[date][locationId].newPatients++;
+        }
+      }
+      
+      console.log('Successfully processed appointment data');
+      resolve(appointmentsByDateLocation);
+    });
+  });
+}
+
 // Generate operations data for a particular date and location
-function generateDailyOperations(date, location) {
+function generateDailyOperations(date, location, appointmentData) {
   const formattedDate = formatDate(date);
   
   // Check if it's a holiday
@@ -231,70 +377,70 @@ function generateDailyOperations(date, location) {
   // Check if it's a weekend
   const isWeekend = date.getDay() === 0 || date.getDay() === 6;
   
-  // Calculate day of week impact
-  const dowFactor = getDayOfWeekFactor(date);
-  
   // If Sunday or holiday, the clinic is closed
   if (date.getDay() === 0 || isHoliday) {
     return null;
   }
   
-  // Calculate seasonal impact
-  const seasonalFactor = getSeasonalFactor(date);
+  // Get appointment metrics from the appointment data
+  const appointmentMetrics = appointmentData[formattedDate] && 
+                            appointmentData[formattedDate][location.id] ? 
+                            appointmentData[formattedDate][location.id] : 
+                            {
+                              total: 0,
+                              completed: 0,
+                              canceled: 0,
+                              noShow: 0,
+                              rescheduled: 0,
+                              totalDuration: 0,
+                              newPatients: 0,
+                              procedures: [],
+                              chargedAmount: 0,
+                              insuranceCovered: 0,
+                              patientResponsibility: 0,
+                              amountPaid: 0
+                            };
   
-  // Calculate growth over time
-  const growthFactor = getGrowthFactor(date);
-  
-  // Calculate actual capacity metrics
-  const maxCapacity = location.chairs * location.avgPatientsPerChairPerDay;
-  
-  // Adjust capacity based on factors
-  let adjustedCapacity = maxCapacity * dowFactor * seasonalFactor * growthFactor;
-  
-  // Saturdays have limited hours (typically half day)
-  if (date.getDay() === 6) {
-    adjustedCapacity = adjustedCapacity * 0.5;
-  }
-  
-  // Round to nearest whole number
-  adjustedCapacity = Math.round(adjustedCapacity);
-  
-  // Calculate actual appointments (with some random variation)
-  const actualAppointments = Math.round(adjustedCapacity * randomFloatBetween(0.85, 0.98));
-  
-  // Calculate chair utilization (target changes over time to show improvement)
+  // Calculate chair utilization based on actual procedure durations
+  let chairUtilization = 0;
   let targetUtilization = location.target_chair_utilization;
   
   // Improve target over time (0.5% per year)
   const yearsSince2020 = date.getFullYear() - 2020;
   targetUtilization += (yearsSince2020 * 0.005);
   
-  // Actual utilization has some variation around target
-  const chairUtilization = randomFloatBetween(
-    Math.max(0.65, targetUtilization - 0.1), 
-    Math.min(0.95, targetUtilization + 0.05)
-  );
+  // Calculate available chair minutes
+  let availableMinutes = location.chairs * location.operatingHours * 60;
+  if (date.getDay() === 6) { // Saturday half day
+    availableMinutes = availableMinutes / 2;
+  }
   
-  // Calculate cancellation and no-show rates (showing improvement over time)
-  const baseCancel = location.target_cancellation_rate;
-  const improvementFactor = Math.max(0.7, 1 - (yearsSince2020 * 0.05)); // 5% improvement per year
+  // Calculate actual chair utilization if we have appointment data
+  if (appointmentMetrics.totalDuration > 0) {
+    chairUtilization = Math.min(0.95, appointmentMetrics.totalDuration / availableMinutes);
+  } else {
+    // Fallback to random if no appointment data available
+    chairUtilization = randomFloatBetween(
+      Math.max(0.65, targetUtilization - 0.1), 
+      Math.min(0.95, targetUtilization + 0.05)
+    );
+  }
   
-  const cancellationRate = baseCancel * improvementFactor * randomFloatBetween(0.8, 1.2);
-  const noShowRate = baseCancel * 0.8 * improvementFactor * randomFloatBetween(0.7, 1.3);
+  // Calculate cancellation and no-show rates from actual data
+  const totalScheduled = appointmentMetrics.total;
+  const cancellations = appointmentMetrics.canceled;
+  const noShows = appointmentMetrics.noShow;
   
-  // Calculate total scheduled (including cancellations and no-shows)
-  const totalScheduled = Math.round(actualAppointments / (1 - cancellationRate - noShowRate));
+  // Calculate rates
+  const cancellationRate = totalScheduled > 0 ? cancellations / totalScheduled : 0;
+  const noShowRate = totalScheduled > 0 ? noShows / totalScheduled : 0;
   
-  // Calculate cancellations and no-shows
-  const cancellations = Math.round(totalScheduled * cancellationRate);
-  const noShows = Math.round(totalScheduled * noShowRate);
-  
-  // Calculate patient metrics
-  const newPatientRate = randomFloatBetween(0.1, 0.2); // 10-20% new patients
-  const newPatients = Math.round(actualAppointments * newPatientRate);
+  // Use actual new patients count
+  const newPatients = appointmentMetrics.newPatients;
+  const actualAppointments = appointmentMetrics.completed;
   const returningPatients = actualAppointments - newPatients;
   
-  // Calculate average wait time (in minutes)
+  // Calculate average wait time (in minutes) - still random since not in appointment data
   const avgWaitTime = randomBetween(5, 25);
   
   // Generate staff hours data
@@ -308,9 +454,9 @@ function generateDailyOperations(date, location) {
   // Certain percentage of staff working each day
   const staffWorkingPercent = {
     'Dentist': 0.9,    // 90% of dentists working on any given day
-    'Hygienist': 0.8,  // 80% of hygienists
+    'Hygienist': 0.833,  // 80% of hygienists
     'Assistant': 0.85, // 85% of assistants
-    'Admin': 0.95      // 95% of admin staff
+    'Admin': 0.973      // 95% of admin staff
   };
   
   // For each staff role, determine who's working
@@ -362,7 +508,11 @@ function generateDailyOperations(date, location) {
   // For each piece of equipment, generate usage data
   locationEquipment.forEach(eq => {
     // Adjust average usage based on appointment volume
-    const volumeFactor = actualAppointments / (location.avgPatientsPerChairPerDay * location.chairs);
+    let volumeFactor = 1.0;
+    if (location.avgPatientsPerChairPerDay > 0) {
+      volumeFactor = actualAppointments / (location.avgPatientsPerChairPerDay * location.chairs);
+    }
+    
     const dailyUses = Math.round(eq.avg_daily_uses * volumeFactor * randomFloatBetween(0.8, 1.2));
     
     // Calculate total usage time
@@ -387,7 +537,9 @@ function generateDailyOperations(date, location) {
     });
   });
   
-  // Calculate treatment plan metrics
+  // Calculate treatment plan metrics - deriving from actual appointment data
+  // Use remaining code from the original function for treatment plans
+  
   // Realistic treatment plan completion rate improvement over time
   const baseCompletionRate = 0.65; // 65% in 2020
   const targetCompletionRate = 0.85; // Target 85% by 2025
@@ -399,7 +551,7 @@ function generateDailyOperations(date, location) {
     randomFloatBetween(-0.05, 0.05); // Add some random variation
   
   // Treatment plan metrics
-  const activeTreatmentPlans = Math.round(actualAppointments * 0.4); // 40% of patients have active treatment plans
+  const activeTreatmentPlans = Math.round(actualAppointments * 0.433); // 40% of patients have active treatment plans
   const completedTreatmentPlans = Math.round(activeTreatmentPlans * treatmentPlanCompletionRate);
   const treatmentPlanStageTracking = {
     'Not Started': Math.round(activeTreatmentPlans * 0.1),
@@ -418,7 +570,7 @@ function generateDailyOperations(date, location) {
     ((baseProcessingDays - targetProcessingDays) * (fractionalYear / 5)) + 
     randomBetween(-2, 3); // Add some random variation
   
-  // Insurance claim metrics
+  // Insurance claim metrics - now derived from actual appointments with insurance
   const dailyClaimsSubmitted = Math.round(actualAppointments * 0.8); // 80% of appointments result in claims
   const dailyClaimsProcessed = Math.round(dailyClaimsSubmitted * randomFloatBetween(0.9, 1.1));
   const dailyClaimsPaid = Math.round(dailyClaimsProcessed * randomFloatBetween(0.85, 0.95));
@@ -432,6 +584,45 @@ function generateDailyOperations(date, location) {
     '90+ days': Math.round(dailyClaimsSubmitted * 0.05)
   };
   
+  // Calculate financial metrics from actual appointment data
+  const actualCollectionRate = appointmentMetrics.chargedAmount > 0 ? 
+    appointmentMetrics.amountPaid / appointmentMetrics.chargedAmount : 
+    randomFloatBetween(
+      Math.max(0.6, location.target_collection_rate - 0.1), 
+      Math.min(0.98, location.target_collection_rate + 0.05)
+    );
+  
+  // Calculate revenue metrics
+  let revenuePerHour = 0;
+  let revenuePerChair = 0;
+  let revenuePerPatient = 0;
+  
+  if (totalLaborHours > 0) {
+    revenuePerHour = Math.round(appointmentMetrics.chargedAmount / totalLaborHours);
+  } else {
+    revenuePerHour = Math.round(randomFloatBetween(900, 1400) * getGrowthFactor(date));
+  }
+  
+  if (location.chairs > 0) {
+    revenuePerChair = Math.round(appointmentMetrics.chargedAmount / location.chairs);
+  } else {
+    revenuePerChair = Math.round(randomFloatBetween(1800, 2400) * getGrowthFactor(date));
+  }
+  
+  if (actualAppointments > 0) {
+    revenuePerPatient = Math.round(appointmentMetrics.chargedAmount / actualAppointments);
+  } else {
+    revenuePerPatient = Math.round(randomFloatBetween(250, 350) * getGrowthFactor(date));
+  }
+  
+  // Cost percentages still use randomized values
+  const laborCostPercentage = totalLaborCost > 0 && appointmentMetrics.chargedAmount > 0 ?
+    (totalLaborCost / appointmentMetrics.chargedAmount).toFixed(2) :
+    randomFloatBetween(0.27, 0.33).toFixed(2);
+  
+  const supplyCostPercentage = randomFloatBetween(0.12, 0.16).toFixed(2);
+  const overheadPercentage = randomFloatBetween(0.35, 0.42).toFixed(2);
+  
   // Create operations record
   return {
     Operations_ID: `OP-${location.id}-${formattedDate.replace(/-/g, '')}`,
@@ -444,8 +635,8 @@ function generateDailyOperations(date, location) {
     Is_Holiday: isHoliday,
     Is_Weekend: isWeekend,
     
-    // Basic operational metrics
-    Appointment_Capacity: adjustedCapacity,
+    // Basic operational metrics - now from actual appointments
+    Appointment_Capacity: location.chairs * location.avgPatientsPerChairPerDay,
     Scheduled_Appointments: totalScheduled,
     Actual_Appointments: actualAppointments,
     Chair_Utilization: chairUtilization.toFixed(2),
@@ -456,7 +647,7 @@ function generateDailyOperations(date, location) {
     No_Show_Rate: noShowRate.toFixed(2),
     Avg_Wait_Time: avgWaitTime,
     
-    // Patient metrics
+    // Patient metrics - from actual appointments
     Total_Patients_Seen: actualAppointments,
     New_Patient_Count: newPatients,
     Returning_Patient_Count: returningPatients,
@@ -498,19 +689,16 @@ function generateDailyOperations(date, location) {
     Claims_Aging_61_90: claimsAging['61-90 days'],
     Claims_Aging_90_Plus: claimsAging['90+ days'],
     
-    // CFO-specific financial benchmarks
+    // CFO-specific financial benchmarks - now from actual appointment data
     Target_Collection_Rate: location.target_collection_rate.toFixed(2),
-    Actual_Collection_Rate: randomFloatBetween(
-      Math.max(0.6, location.target_collection_rate - 0.1), 
-      Math.min(0.98, location.target_collection_rate + 0.05)
-    ).toFixed(2),
+    Actual_Collection_Rate: actualCollectionRate.toFixed(2),
     
-    Revenue_Per_Hour: Math.round(randomFloatBetween(900, 1400) * growthFactor),
-    Revenue_Per_Chair: Math.round(randomFloatBetween(1800, 2400) * growthFactor),
-    Revenue_Per_Patient: Math.round(randomFloatBetween(250, 350) * growthFactor),
-    Labor_Cost_Percentage: randomFloatBetween(0.27, 0.33).toFixed(2),
-    Supply_Cost_Percentage: randomFloatBetween(0.12, 0.16).toFixed(2),
-    Overhead_Percentage: randomFloatBetween(0.35, 0.42).toFixed(2),
+    Revenue_Per_Hour: revenuePerHour,
+    Revenue_Per_Chair: revenuePerChair,
+    Revenue_Per_Patient: revenuePerPatient,
+    Labor_Cost_Percentage: laborCostPercentage,
+    Supply_Cost_Percentage: supplyCostPercentage,
+    Overhead_Percentage: overheadPercentage,
     
     // Reference to staff and equipment data
     Staff_Details: staffData,
@@ -519,7 +707,9 @@ function generateDailyOperations(date, location) {
 }
 
 // Generate operations dataset
-function generateOperationsDataset() {
+async function generateOperationsDataset() {
+  const appointmentData = await readAppointmentData();
+  
   const operationsData = [];
   const staffHoursData = [];
   const equipmentUsageData = [];
@@ -531,7 +721,7 @@ function generateOperationsDataset() {
   while (date <= END_DATE) {
     // For each location, generate daily operations data
     for (const location of locations) {
-      const dailyData = generateDailyOperations(date, location);
+      const dailyData = generateDailyOperations(date, location, appointmentData);
       
       // Skip if null (clinic closed)
       if (dailyData) {
@@ -614,44 +804,57 @@ function convertToCSV(data) {
   return csvRows.join('\n');
 }
 
-// Generate the datasets
-const { operationsData, staffHoursData, equipmentUsageData } = generateOperationsDataset();
+// Main execution function
+async function main() {
+  try {
+    // Generate the datasets
+    console.log("Reading appointment data and generating operations data...");
+    const { operationsData, staffHoursData, equipmentUsageData } = await generateOperationsDataset();
+    
+    // Save datasets to CSV files
+    console.log("Saving data to CSV files...");
+    const operationsCSV = convertToCSV(operationsData);
+    fs.writeFileSync('Dental_Operations_Data.csv', operationsCSV);
+    
+    const staffHoursCSV = convertToCSV(staffHoursData);
+    fs.writeFileSync('Dental_Staff_Hours_Data.csv', staffHoursCSV);
+    
+    const equipmentUsageCSV = convertToCSV(equipmentUsageData);
+    fs.writeFileSync('Dental_Equipment_Usage_Data.csv', equipmentUsageCSV);
+    
+    // Log results
+    console.log(`Generated ${operationsData.length} dental operations records`);
+    console.log(`Generated ${staffHoursData.length} staff hours records`);
+    console.log(`Generated ${equipmentUsageData.length} equipment usage records`);
+    console.log(`Data saved to 'Dental_Operations_Data.csv', 'Dental_Staff_Hours_Data.csv', and 'Dental_Equipment_Usage_Data.csv'`);
+    
+    // Calculate some metrics for verification
+    const totalAppointments = operationsData.reduce((sum, op) => sum + op.Actual_Appointments, 0);
+    const totalLaborCost = operationsData.reduce((sum, op) => sum + op.Total_Labor_Cost, 0);
+    const avgChairUtilization = operationsData.reduce((sum, op) => sum + parseFloat(op.Chair_Utilization), 0) / operationsData.length;
+    
+    console.log(`Total appointments across all locations: ${totalAppointments}`);
+    console.log(`Total labor cost: $${totalLaborCost.toLocaleString()}`);
+    console.log(`Average chair utilization: ${(avgChairUtilization * 100).toFixed(1)}%`);
+    
+    // Count records by year
+    const byYear = {};
+    operationsData.forEach(op => {
+      byYear[op.Year] = (byYear[op.Year] || 0) + 1;
+    });
+    console.log("Records by year:", byYear);
+    
+    // Count records by location
+    const byLocation = {};
+    operationsData.forEach(op => {
+      byLocation[op.Location_Name] = (byLocation[op.Location_Name] || 0) + 1;
+    });
+    console.log("Records by location:", byLocation);
+    
+  } catch (error) {
+    console.error("Error generating operations data:", error);
+  }
+}
 
-// Save datasets to CSV files
-const operationsCSV = convertToCSV(operationsData);
-fs.writeFileSync('Dental_Operations_Data.csv', operationsCSV);
-
-const staffHoursCSV = convertToCSV(staffHoursData);
-fs.writeFileSync('Dental_Staff_Hours_Data.csv', staffHoursCSV);
-
-const equipmentUsageCSV = convertToCSV(equipmentUsageData);
-fs.writeFileSync('Dental_Equipment_Usage_Data.csv', equipmentUsageCSV);
-
-// Log results
-console.log(`Generated ${operationsData.length} dental operations records`);
-console.log(`Generated ${staffHoursData.length} staff hours records`);
-console.log(`Generated ${equipmentUsageData.length} equipment usage records`);
-console.log(`Data saved to 'Dental_Operations_Data.csv', 'Dental_Staff_Hours_Data.csv', and 'Dental_Equipment_Usage_Data.csv'`);
-
-// Calculate some metrics for verification
-const totalAppointments = operationsData.reduce((sum, op) => sum + op.Actual_Appointments, 0);
-const totalLaborCost = operationsData.reduce((sum, op) => sum + op.Total_Labor_Cost, 0);
-const avgChairUtilization = operationsData.reduce((sum, op) => sum + parseFloat(op.Chair_Utilization), 0) / operationsData.length;
-
-console.log(`Total appointments across all locations: ${totalAppointments}`);
-console.log(`Total labor cost: $${totalLaborCost.toLocaleString()}`);
-console.log(`Average chair utilization: ${(avgChairUtilization * 100).toFixed(1)}%`);
-
-// Count records by year
-const byYear = {};
-operationsData.forEach(op => {
-  byYear[op.Year] = (byYear[op.Year] || 0) + 1;
-});
-console.log("Records by year:", byYear);
-
-// Count records by location
-const byLocation = {};
-operationsData.forEach(op => {
-  byLocation[op.Location_Name] = (byLocation[op.Location_Name] || 0) + 1;
-});
-console.log("Records by location:", byLocation);
+// Run the main function
+main();
